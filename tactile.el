@@ -177,7 +177,7 @@
     (while (and forms (< (member-end (first forms)) (point)))
       (setq forms (rest forms)))
     (when (and forms (< (member-start (first forms)) (point)))
-      (first forms)))))
+      (first forms))))
 
 (defun tactile-get-form-at-point (&optional layers)
   (let* ((outer-form (tactile-get-top-level-form))
