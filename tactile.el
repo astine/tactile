@@ -156,20 +156,21 @@
       (goto-char (point-min))
       (while (< (point) (point-max))
 					;40 is open paren, 41 is close paren
-	(cond ((and (char-after) (= (char-after) 40)
+	(when (and (char-after) (= (char-after) 40)
 		    (not (in-quotes-p)) (not (in-comment-p)))
-	       (let ((form nil))
-		 (push (point) form)
-		 (let ((end (find-closing-paren)))
-		   (if end ;If this form does not close, don't add it and finish parsing
-		       (progn
-			 (push end form)
-			 (goto-char (1+ (first form)))
-			 (push (buffer-substring-no-properties (second form) (1+ (first form))) form)
-			 (push :form form)
-			 (push (nreverse form) forms))
-		     (goto-char (1- (point-max))))))))
-	(forward-char))
+	  (let ((form nil))
+	    (push (point) form)
+	    (let ((end (find-closing-paren)))
+	      (if end ;If this form does not close, don't add it and finish parsing
+		  (progn
+		    (push end form)
+		    (goto-char (1+ (first form)))
+		    (push (buffer-substring-no-properties (second form) (1+ (first form))) form)
+		    (push :form form)
+		    (push (nreverse form) forms))
+		(goto-char (1- (point-max)))))))
+	(when (< (point) (point-max))
+	  (forward-char)))
       (nreverse forms))))
 
 (defun tactile-get-top-level-form ()
