@@ -499,8 +499,25 @@
       (if (and (char-before) (= (char-before) 40))
 	  (delete-current-form)
 	(delete-char -1)))))
-  
 
+(defun handle-space ()
+  (interactive)
+  (let ((member (member-at-point)))
+    (when member
+      (cond ((not (or (= (member-start member) (point))
+			   (= (member-end member) (point))))
+	     (if (equal (member-type member) :string)
+		 (tactile-one-change
+		  (insert-char 32))
+	       ;(tactile-one-change
+		;(insert-char 92)
+		;(insert-char 32))
+	       ))
+	    ((= (member-end member) (point))
+	     (insert-member))
+	    ((= (member-start member) (point))
+	     nil)))))
+  
 (defun switch-back () (interactive) (remove-overlays) (emacs-lisp-mode))
 
 (define-derived-mode tactile-mode emacs-lisp-mode "Tactile"
@@ -529,6 +546,7 @@
   (define-key (current-local-map) (kbd ")") 'handle-close-parentheses)
   (define-key (current-local-map) (kbd "\"") 'handle-quote)
   (define-key (current-local-map) (kbd "<backspace>") 'handle-backspace)
+  (define-key (current-local-map) (kbd "SPC") 'handle-space)
 
   (define-key (current-local-map) (kbd "C-q") 'switch-back)
   (viper-change-state-to-emacs))
