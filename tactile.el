@@ -255,14 +255,6 @@
 		  nil
 		  :form))
        tactile-top-level-forms))
-
-(defun beyond-members-p (members point)
-  (let ((members (sort members (lambda (a b)
-				 (< (member-start a) (member-start b))))))
-    (cond ((< point (member-start (first members)))
-	   :before)
-	  ((> point (member-end (first (last members))))
-	   :after))))
  
 (defun in-which-member (members point &optional include-nearest-p)
   (cl-labels ((find-current-atom (atoms)
@@ -356,16 +348,10 @@
 (defun navigate-atoms (reversep &optional jump)
   (destructuring-bind (prev member next)
       (surrounding-three-members jump)
-    (if (and (equal (member-type member) :form)
-	     (read-form-members member)
-	     (let ((beyond (beyond-members-p (read-form-members member) (point))))
-	       (or (and (equal beyond :after) reversep)
-		   (and (equal beyond :before) (not reversep)))))
-	(enter-member member reversep)
-      (let ((next-member (if reversep prev next)))
-	(if next-member 
-	    (goto-member next-member reversep)
-	  (navigate-atoms reversep (1+ (or jump 0))))))))
+    (let ((next-member (if reversep prev next)))
+      (if next-member 
+	  (goto-member next-member reversep)
+	(navigate-atoms reversep (1+ (or jump 0)))))))
 
 (defun move-foreward () (interactive) (navigate-atoms nil))
 (defun move-backward () (interactive) (navigate-atoms 't))
