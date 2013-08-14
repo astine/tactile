@@ -255,14 +255,6 @@
 		  nil
 		  :form))
        tactile-top-level-forms))
-
-(defun beyond-members-p (members point)
-  (let ((members (sort members (lambda (a b)
-				 (< (member-start a) (member-start b))))))
-    (cond ((< point (member-start (first members)))
-	   :before)
-	  ((> point (member-end (first (last members))))
-	   :after))))
  
 (defun in-which-member (members point &optional include-nearest-p)
   (cl-labels ((find-current-atom (atoms)
@@ -305,14 +297,30 @@
     (when member
       (move-overlay atom-at-point-overlay (member-start member) (member-end member)))))
 
+(defun trim-unecessary-form-spaces (form)
+  (let ((real-point (point)))
+    (save-excursion
+      (goto-char (member-start form))
+      ;(while (<= (point) (member-end form))
+	;(cond ((and (char-before) (= (char-before) 40)
+		    ;(char-after) (or (= (char-before) 32) (= (char-before) 9))
+		    ;(not (= (point) real-point)))
+	       ;(delete-char 1))
+	      ;((and (char-before) (or (= (char-before) 32) (= (char-before) 9))
+		  ;(char-after) (= (char-after) 41)
+		  ;(not (= (point) real-point)))
+	       ;(delete-char -1))
+	      ;(t
+	       ;(forward-char))))
+      (goto-char (member-start (tactile-get-top-level-form)))
+      (indent-pp-sexp))))
+
 (defun tactile-on-change (x y z)
   (unless no-parse-forms
     (setq tactile-quote-markers (tactile-get-quote-markers))
     (setq tactile-top-level-forms (tactile-find-top-level-forms))
     (when (tactile-get-top-level-form)
-      (save-excursion
-	(goto-char (member-start (tactile-get-top-level-form)))
-	(indent-pp-sexp)))))
+      (trim-unecessary-form-spaces (tactile-get-top-level-form)))))
 
 (defmacro tactile-one-change (&rest body)
   `(progn
@@ -356,16 +364,10 @@
 (defun navigate-atoms (reversep &optional jump)
   (destructuring-bind (prev member next)
       (surrounding-three-members jump)
-    (if (and (equal (member-type member) :form)
-	     (read-form-members member)
-	     (let ((beyond (beyond-members-p (read-form-members member) (point))))
-	       (or (and (equal beyond :after) reversep)
-		   (and (equal beyond :before) (not reversep)))))
-	(enter-member member reversep)
-      (let ((next-member (if reversep prev next)))
-	(if next-member 
-	    (goto-member next-member reversep)
-	  (navigate-atoms reversep (1+ (or jump 0))))))))
+    (let ((next-member (if reversep prev next)))
+      (if next-member 
+	  (goto-member next-member reversep)
+	(navigate-atoms reversep (1+ (or jump 0)))))))
 
 (defun move-foreward () (interactive) (navigate-atoms nil))
 (defun move-backward () (interactive) (navigate-atoms 't))
