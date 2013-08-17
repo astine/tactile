@@ -196,6 +196,8 @@
       (let ((begin nil)
 	    (end nil)
 	    (form-depth (or layers 0)))
+	(when (at-unescaped-quote-p)
+	  (backward-char))
 	(when (in-quotes-p) 
 	  (find-opening-quote)
 	  (backward-char))
