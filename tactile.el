@@ -1,6 +1,8 @@
 (setq lexical-binding t)
 
 (defmacro if-let (binding &rest body)
+  "Binds the result of an if conditional statement so that it can be used in the 
+  body of the if statement."
   `(let ((,(first binding) ,(second binding)))
      (if ,(first binding)
 	 ,@body)))
@@ -51,18 +53,24 @@
 ;;; Form reading and manipulation
 
 (defun member-start (member)
+  "Returns the buffer location of member's start"
   (first member))
 
 (defun member-end (member)
+  "Returns the buffer location of member's end"
   (second member))
 
 (defun member-text (member)
+  "Returns the text of the member"
   (third member))
 
 (defun member-type (member)
+  "Returns the type of the member"
   (fourth member))
 
 (defun quote-escaped-p (&optional point)
+  "Returns true if the character under the point is a quote, and that quote
+  is escaped by an odd number of backslashes."
   (let ((point (or point (point))))
     (save-excursion
       (goto-char point)
@@ -74,16 +82,21 @@
 	  (oddp slash-count))))))
 
 (defun at-unescaped-quote-p ()
+  "Returns true if the character under the point is a double quote and
+  that quote is not escaped by an odd number of backslashes."
   (and (char-after) (= (char-after) ?\")
        (not (quote-escaped-p))))
 
 (defun get-best-quote-marker (&optional quote-markers)
+  "Returns the quote marker which is furthest in the file, while still being
+  before the point."
   (let ((quote-markers (or quote-markers tactile-quote-markers '((0 nil)))))
     (while (<= (point) (caar quote-markers))
       (setq quote-markers (rest quote-markers)))
     (first quote-markers)))
 
 (defun in-quotes-p (&optional point origin)
+  "Returns true if the point is within a pair of quotes."
   (let ((point (or point (point)))
 	(origin (or origin (get-best-quote-marker))))
     (save-excursion
@@ -105,16 +118,21 @@
 	  (oddp quote-count))))))
 
 (defun find-closing-quote ()
+  "Find the next unescaped quote in the buffer."
   (forward-char)
   (while (not (at-unescaped-quote-p))
     (forward-char)))
 
 (defun find-opening-quote ()
+  "Find the last unescaped quote in the buffer."
   (backward-char)
   (while (not (at-unescaped-quote-p))
     (backward-char)))
 
 (defun tactile-get-quote-markers ()
+  "Go through the entire buffer and mark whether the beginning of every tenth line
+  is in quotes. This is to make testing whether the point is in a pair of quotes 
+  faster."
   (save-excursion
     (let ((quote-markers (list '(0 nil))))
       (goto-char 0)
@@ -126,6 +144,7 @@
       quote-markers)))
 
 (defun in-comment-p (&optional point)
+  "Return true if the point is within a comment (after a semicolon before the end of a line.)"
   (let ((point (or point (point))))
     (save-excursion
       (beginning-of-line) 
@@ -140,6 +159,7 @@
 	in-comment-p))))
 
 (defun find-closing-paren (&optional max)
+  "Finds the next closing paren at the same paren depth as the point."
   (save-excursion
     (let ((depth 0)
 	  (location nil))
@@ -159,6 +179,8 @@
       location)))
 	
 (defun tactile-find-top-level-forms ()
+  "Traverses the entire buffer looking for top level forms and returns a list of
+  them in the order they were found."
   (save-excursion
     (let ((forms nil))
       (goto-char (point-min))
@@ -182,20 +204,24 @@
       (nreverse forms))))
 
 (defun tactile-get-top-level-form ()
+  "Returns the top level form at point. (This function will fail is tactile-top-level-forms
+  is blank.)"
   (let ((forms tactile-top-level-forms))
     (while (and forms (< (member-end (first forms)) (point)))
       (setq forms (rest forms)))
     (when (and forms (< (member-start (first forms)) (point)))
       (first forms))))
 
-(defun tactile-get-form-at-point (&optional layers)
+(defun tactile-get-form-at-point (&optional jump)
+  "Finds and returns the form surrounding the point. Jump can be used to find the form surrounding
+  that one or the one surrounding that, etc."
   (let* ((outer-form (tactile-get-top-level-form))
 	 (search-area-start (if outer-form (member-start outer-form) (point-min)))
 	 (search-area-end (if outer-form (member-end outer-form) (point-max))))
     (save-excursion
       (let ((begin nil)
 	    (end nil)
-	    (form-depth (or layers 0)))
+	    (form-depth (or jump 0)))
 	(when (at-unescaped-quote-p)
 	  (backward-char))
 	(when (in-quotes-p) 
