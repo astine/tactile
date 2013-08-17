@@ -1,3 +1,5 @@
+(setq lexical-binding t)
+
 (defmacro if-let (binding &rest body)
   `(let ((,(first binding) ,(second binding)))
      (if ,(first binding)
@@ -35,6 +37,12 @@
 (defvar-local tactile-quote-markers nil)
 (defvar-local no-parse-forms nil 
   "Boolean to block the parsing of the top level forms when we know they are imbalanced")
+
+(defvar-local tactile-current-form-depth 0)
+
+(defvar tactile-kill-ring nil)
+(defvar tactile-kill-ring-size 10)
+(defvar tactile-kill-ring-last-yank nil)
 
 (defvar-local top-level-overlay nil)
 (defvar-local at-point-overlay nil)
@@ -267,10 +275,12 @@
     (find-current-atom (reverse (sort members (lambda (a b)
 						(< (member-start a) (member-start b))))))))
 
-(defun member-at-point ()
-  (let ((form (tactile-get-form-at-point)))
-    (when form
-      (in-which-member (read-form-members form) (point)))))
+(defun member-at-point (&optional jump)
+  (let ((form (tactile-get-form-at-point (or jump 0))))
+    (if jump
+	form
+      (when form
+	(in-which-member (read-form-members form) (point))))))
 
 (defun surrounding-three-members (&optional jump)
   (let* ((form (tactile-get-form-at-point (or jump 0)))
@@ -297,21 +307,40 @@
     (when member
       (move-overlay atom-at-point-overlay (member-start member) (member-end member)))))
 
+(defun trim-unecessary-form-spaces (form)
+  (let ((real-point (point)))
+    (save-excursion
+      ;(goto-char (member-start form))
+      ;(while (<= (point) (member-end form))
+	;(cond ((and (char-before) (= (char-before) 40)
+		    ;(char-after) (or (= (char-before) 32) (= (char-before) 9))
+		    ;(not (= (point) real-point)))
+	       ;(delete-char 1))
+	      ;((and (char-before) (or (= (char-before) 32) (= (char-before) 9))
+		  ;(char-after) (= (char-after) 41)
+		  ;(not (= (point) real-point)))
+	       ;(delete-char -1))
+	      ;(t
+	       ;(forward-char))))
+      (goto-char (member-start (tactile-get-top-level-form)))
+      (indent-pp-sexp))))
+
 (defun tactile-on-change (x y z)
-  (unless no-parse-forms
-    (setq tactile-quote-markers (tactile-get-quote-markers))
-    (setq tactile-top-level-forms (tactile-find-top-level-forms))
-    (when (tactile-get-top-level-form)
-      (save-excursion
-	(goto-char (member-start (tactile-get-top-level-form)))
-	(indent-pp-sexp)))))
+  (setq tactile-quote-markers (tactile-get-quote-markers))
+  (setq tactile-top-level-forms (tactile-find-top-level-forms))
+  (when (tactile-get-top-level-form)
+    (trim-unecessary-form-spaces (tactile-get-top-level-form))))
 
 (defmacro tactile-one-change (&rest body)
   `(progn
-     (setq no-parse-forms t)
+     (if no-parse-forms
+	 (incf no-parse-forms)
+       (setq no-parse-forms 0))
      ,@body
-     (setq no-parse-forms nil)
-     (tactile-on-change)))
+     (if (zerop no-parse-forms)
+	 (setq no-parse-forms nil)
+       (decf no-parse-forms))
+     (tactile-on-change nil nil nil)))
 
 (defun tactile-highlight-top-level-form ()
   (let ((form (tactile-get-top-level-form)))
@@ -320,8 +349,8 @@
     (when form
       (move-overlay top-level-overlay (member-start form) (1+ (member-end form))))))
 
-(defun tactile-highlight-form-at-point ()
-  (let ((form (tactile-get-form-at-point)))
+(defun tactile-highlight-selected-form ()
+  (let ((form (tactile-get-form-at-point tactile-current-form-depth)))
     (when at-point-overlay
       (delete-overlay at-point-overlay))
     (when form
@@ -329,8 +358,14 @@
 
 (defun highlight-forms ()
   (tactile-highlight-top-level-form)
-  (tactile-highlight-form-at-point)
+  (tactile-highlight-selected-form)
   (tactile-highlight-atom-at-point))
+
+(defun tactile-on-move ()
+  (when (not (equal (member-text (first tactile-kill-ring-last-yank))
+		    (member-text (member-at-point))))
+    (setq tactile-kill-ring-last-yank nil))
+  (highlight-forms))
 
 (defun goto-member (member &optional reversep)
   (case (member-type member)
@@ -356,7 +391,7 @@
 (defun move-foreward () (interactive) (navigate-atoms nil))
 (defun move-backward () (interactive) (navigate-atoms 't))
 
-(defun insert-member ()
+(defun tactile-start-new-member ()
   (interactive)
   (destructuring-bind (prev member next)
       (surrounding-three-members)
@@ -368,7 +403,7 @@
       (unless (or prev member)
 	(backward-char)))))
 
-(defun insert-member-reverse ()
+(defun tactile-start-new-member-reverse ()
   (interactive)
   (destructuring-bind (prev member next)
       (surrounding-three-members)
@@ -384,7 +419,7 @@
     (if member
 	(case (member-type member)
 	  (:string (insert-char 40))
-	  (:atom (insert-member)
+	  (:atom (tactile-start-new-member)
 		 (insert-parentheses)))
       (insert-char 40)
       (insert-char 41)
@@ -398,16 +433,16 @@
 	  (:string (insert-char 41))
 	  (:atom (goto-char (member-end (tactile-get-form-at-point)))
 		 (forward-char)
-		 (insert-member)))
+		 (tactile-start-new-member)))
     (goto-char (member-end (tactile-get-form-at-point)))
     (forward-char)
-    (insert-member))))
+    (tactile-start-new-member))))
 
 (defun atom-to-string ()
   (let ((member (member-at-point)))
     (when (and member (equal (member-type member) :atom))
       (save-excursion
-	(tactile-one-change
+	(combine-after-change-calls
 	 (goto-char (member-end member))
 	 (insert-char 34)
 	 (goto-char (member-start member))
@@ -417,7 +452,7 @@
   (let ((member (member-at-point)))
     (when (and member (equal (member-type member) :string))
       (save-excursion
-	(tactile-one-change
+	(combine-after-change-calls
 	 (goto-char (member-end member))
 	 (delete-char -1)
 	 (goto-char (member-start member))
@@ -430,12 +465,12 @@
 	(case (member-type member)
 	  (:atom (if (= (point) (member-end member))
 		     (progn
-		       (insert-member)
+		       (tactile-start-new-member)
 		       (insert-string "\"\"")
 		       (backward-char))
 		   (atom-to-string)))
 	  (:string (cond ((> (1+ (point)) (member-end member))
-			  (insert-member))
+			  (tactile-start-new-member))
 			 ((= (point) (member-start member))
 			  (forward-char))
 			 (t
@@ -443,9 +478,10 @@
       (insert-string "\"\"")
       (backward-char))))
 
-(defun delete-current-form (&optional jump)
-  (let ((form (tactile-get-form-at-point (or jump 0))))
-    (when (or (zerop (length (read-form-members form)))
+(defun delete-current-form (&optional force jump)
+  (let ((form (tactile-get-form-at-point (or jump tactile-current-form-depth))))
+    (when (or force
+	      (zerop (length (read-form-members form)))
 	      (y-or-n-p "Really delete form?"))
       (goto-char (member-start form))
       (when (and (char-before) (= (char-before) 32))
@@ -459,6 +495,66 @@
       (when (and (char-before) (= (char-before) 32))
 	(backward-char))
       (delete-char (- (member-end member) (point))))))
+
+(defun tactile-add-to-kill-ring (member)
+  (when (>= (length tactile-kill-ring) tactile-kill-ring-size)
+    (setq tactile-kill-ring (butlast tactile-kill-ring)))
+  (push member tactile-kill-ring))
+
+(defun add-current-form-to-kill-ring (&optional jump)
+  (interactive)
+  (tactile-add-to-kill-ring 
+   (tactile-get-form-at-point 
+    (or jump tactile-current-form-depth))))
+
+(defun add-current-member-to-kill-ring ()
+  (interactive)
+  (let ((member (member-at-point)))
+    (when member
+      (tactile-add-to-kill-ring member))))
+
+(defun kill-current-form (&optional jump)
+  (interactive)
+  (add-current-form-to-kill-ring jump)
+  (delete-current-form t jump))
+
+(defun kill-current-member ()
+  (interactive)
+  (add-current-member-to-kill-ring)
+  (delete-current-member))
+
+(defun tactile-insert-member (member &optional reversep)
+  (destructuring-bind (prev memb next)
+      (surrounding-three-members)
+    (combine-after-change-calls
+      (if reversep
+	  (tactile-start-new-member-reverse)
+	(tactile-start-new-member))
+      (insert-string (member-text member)))) )
+
+(defun tactile-replace-current-member (new-member &optional jump)
+  (combine-after-change-calls
+   (if jump
+       (delete-current-form t jump)
+     (delete-current-member))
+   (tactile-insert-member new-member)))
+
+(defun tactile-yank (&optional reversep)
+  (interactive)
+  (tactile-insert-member (first tactile-kill-ring) reversep)
+  (setq tactile-kill-ring-last-yank (list (first tactile-kill-ring) 0)))
+
+(defun tactile-yank-again ()
+  (interactive)
+  (cond ((not tactile-kill-ring-last-yank)
+	 (tactile-yank))
+	((< (1+ (second tactile-kill-ring-last-yank)) (length tactile-kill-ring))	
+	 (let ((new-index (1+ (second tactile-kill-ring-last-yank))))
+	   (tactile-replace-current-member (nth new-index tactile-kill-ring))
+	   (setq tactile-kill-ring-last-yank (list (nth new-index tactile-kill-ring) new-index))))
+	(t
+	 (tactile-replace-current-member (first tactile-kill-ring))
+	 (setq tactile-kill-ring-last-yank (list (first tactile-kill-ring) 0)))))
 
 (defun handle-backspace ()
   (interactive)
@@ -493,14 +589,14 @@
       (cond ((not (or (= (member-start member) (point))
 			   (= (member-end member) (point))))
 	     (if (equal (member-type member) :string)
-		 (tactile-one-change
+		 (combine-after-change-calls
 		  (insert-char 32))
-	       ;(tactile-one-change
+	       ;(combine-after-change-calls
 		;(insert-char 92)
 		;(insert-char 32))
 	       ))
 	    ((= (member-end member) (point))
-	     (insert-member))
+	     (tactile-start-new-member))
 	    ((= (member-start member) (point))
 	     nil)))))
   
@@ -509,7 +605,6 @@
 (define-derived-mode tactile-mode emacs-lisp-mode "Tactile"
   "Major mode extending emacs lisp mode for structural editing of lisp
    code"
-
   (setq top-level-overlay (make-overlay 0 0))
   (setq at-point-overlay (make-overlay 0 0))
   (setq atom-at-point-overlay (make-overlay 0 0))
@@ -519,20 +614,22 @@
   (overlay-put atom-at-point-overlay 'face 'tactile-atom-at-point-face)
 
   (add-hook 'after-change-functions 'tactile-on-change nil t)
-  (add-hook 'post-command-hook 'highlight-forms nil t)
+  (add-hook 'post-command-hook 'tactile-on-move nil t)
 
   (setq tactile-quote-markers (tactile-get-quote-markers))
   (setq tactile-top-level-forms (tactile-find-top-level-forms))
 
   (define-key (current-local-map) (kbd "M-n") 'move-foreward)
   (define-key (current-local-map) (kbd "M-p") 'move-backward)
-  (define-key (current-local-map) (kbd "TAB") 'insert-member)
-  (define-key (current-local-map) (kbd "<backtab>") 'insert-member-reverse)
+  (define-key (current-local-map) (kbd "TAB") 'tactile-start-new-member)
+  (define-key (current-local-map) (kbd "<backtab>") 'tactile-start-new-member-reverse)
   (define-key (current-local-map) (kbd "(") 'insert-parentheses)
   (define-key (current-local-map) (kbd ")") 'handle-close-parentheses)
   (define-key (current-local-map) (kbd "\"") 'handle-quote)
   (define-key (current-local-map) (kbd "<backspace>") 'handle-backspace)
   (define-key (current-local-map) (kbd "SPC") 'handle-space)
+  (define-key (current-local-map) (kbd "C-c C-k") 'kill-current-member)
+  (define-key (current-local-map) (kbd "C-c C-y") 'tactile-yank)
 
   (define-key (current-local-map) (kbd "C-q") 'switch-back)
   (viper-change-state-to-emacs))
