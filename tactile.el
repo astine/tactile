@@ -478,23 +478,29 @@
       (insert-string "\"\"")
       (backward-char))))
 
+(defun delete-member (member)
+  (combine-after-change-calls
+    (goto-char (member-start member))
+    (delete-char (- (member-end member) (member-start member)))
+    (while (and (char-after) (= (char-after) 32))
+      (delete-char 1))
+    (while (and (char-before) (= (char-before) 32))
+      (delete-char -1))
+    (when (and (char-before) (not (= (char-before) 40))
+	       (char-after) (not (= (char-after) 41)))
+      (insert-char 32))))
+
 (defun delete-current-form (&optional force jump)
   (let ((form (tactile-get-form-at-point (or jump tactile-current-form-depth))))
     (when (or force
 	      (zerop (length (read-form-members form)))
 	      (y-or-n-p "Really delete form?"))
-      (goto-char (member-start form))
-      (when (and (char-before) (= (char-before) 32))
-	(backward-char))
-      (delete-char (1+ (- (member-end form) (point)))))))
+      (delete-member form))))
 
 (defun delete-current-member ()
   (let ((member (member-at-point)))
     (when member
-      (goto-char (member-start member))
-      (when (and (char-before) (= (char-before) 32))
-	(backward-char))
-      (delete-char (- (member-end member) (point))))))
+      (delete-member member))))
 
 (defun tactile-add-to-kill-ring (member)
   (when (>= (length tactile-kill-ring) tactile-kill-ring-size)
