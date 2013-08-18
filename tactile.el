@@ -50,6 +50,8 @@
 (defvar-local top-level-overlay nil)
 (defvar-local active-member-overlay nil)
 
+(defvar-local tactile-last-point 0)
+
 ;;; Form reading and manipulation
 
 (defun member-start (member)
@@ -190,12 +192,12 @@
 		    (not (in-quotes-p)) (not (in-comment-p)))
 	  (let ((form nil))
 	    (push (point) form)
-	    (let ((end (find-closing-paren)))
+	    (let ((end (1+ (find-closing-paren))))
 	      (if end ;If this form does not close, don't add it and finish parsing
 		  (progn
 		    (push end form)
 		    (goto-char (1+ (first form)))
-		    (push (buffer-substring-no-properties (second form) (1+ (first form))) form)
+		    (push (buffer-substring-no-properties (second form) (first form)) form)
 		    (push :form form)
 		    (push (nreverse form) forms))
 		(goto-char (1- (point-max)))))))
@@ -244,9 +246,9 @@
 		((and (char-after) (= (char-after) 40))
 		 (decf form-depth 1))))
 	(when begin
-	  (setq end (find-closing-paren search-area-end))
+	  (setq end (1+ (find-closing-paren search-area-end)))
 	  (when end
-	    (list begin end (buffer-substring-no-properties begin (1+ end)) :form)))))))
+	    (list begin end (buffer-substring-no-properties begin end) :form)))))))
 
 ;;; Atom reading and manipulation
 
@@ -264,16 +266,16 @@
 
 (defun read-form ()
   (let ((start (point))
-	(end (find-closing-paren)))
-    (goto-char (1+ end))
-    (list start end (buffer-substring-no-properties start (1+ end)) :form)))
+	(end (1+ (find-closing-paren))))
+    (goto-char end)
+    (list start end (buffer-substring-no-properties start end) :form)))
 
 (defun read-form-members (form)
   (save-excursion
     (when form
       (goto-char (1+ (member-start form)))
       (let ((members nil))
-	(while (< (point) (member-end form))
+	(while (< (point) (1- (member-end form)))
 	  (cond ((= (char-after) 34)
 		 (push (read-str) members))
 		((= (char-after) 40)
@@ -408,7 +410,9 @@
   (when (not (equal (member-text (first tactile-kill-ring-last-yank))
 		    (member-text (active-member))))
     (setq tactile-kill-ring-last-yank nil))
-  (reset-active-member)
+  (when (not (= (point) tactile-last-point))
+    (setq tactile-last-point (point))
+    (reset-active-member))
   (highlight-forms))
 
 (defun goto-member (member &optional reversep)
@@ -522,7 +526,7 @@
       (insert-string "\"\"")
       (backward-char))))
 
-(defun delete-member (member)
+(defun tactile-delete-member (member)
   (combine-after-change-calls
     (goto-char (member-start member))
     (delete-char (- (member-end member) (member-start member)))
@@ -534,44 +538,30 @@
 	       (char-after) (not (= (char-after) 41)))
       (insert-char 32))))
 
-(defun delete-current-form (&optional force jump)
-  (let ((form (tactile-get-form-at-point (or jump tactile-current-form-depth))))
-    (when (or force
+(defun tactile-delete-active-member (&optional force)
+  (interactive)
+  (tactile-with-active-member (member)
+    (when (or (not (equal (member-type member) :form))
+	      force
 	      (zerop (length (read-form-members form)))
 	      (y-or-n-p "Really delete form?"))
-      (delete-member form))))
-
-(defun delete-current-member ()
-  (let ((member (member-at-point)))
-    (when member
-      (delete-member member))))
+      (tactile-delete-member member))))
 
 (defun tactile-add-to-kill-ring (member)
   (when (>= (length tactile-kill-ring) tactile-kill-ring-size)
     (setq tactile-kill-ring (butlast tactile-kill-ring)))
   (push member tactile-kill-ring))
 
-(defun add-current-form-to-kill-ring (&optional jump)
+(defun tactile-add-active-member-to-kill-ring ()
   (interactive)
-  (tactile-add-to-kill-ring 
-   (tactile-get-form-at-point 
-    (or jump tactile-current-form-depth))))
+  (tactile-with-active-member (member)
+    (tactile-add-to-kill-ring member)))
 
-(defun add-current-member-to-kill-ring ()
+(defun tactile-kill-active-member ()
   (interactive)
-  (let ((member (member-at-point)))
-    (when member
-      (tactile-add-to-kill-ring member))))
-
-(defun kill-current-form (&optional jump)
-  (interactive)
-  (add-current-form-to-kill-ring jump)
-  (delete-current-form t jump))
-
-(defun kill-current-member ()
-  (interactive)
-  (add-current-member-to-kill-ring)
-  (delete-current-member))
+  (tactile-with-active-member (member)
+    (tactile-add-to-kill-ring member)
+    (tactile-delete-member member)))
 
 (defun tactile-insert-member (member &optional reversep)
   (destructuring-bind (prev memb next)
@@ -580,14 +570,12 @@
       (if reversep
 	  (tactile-start-new-member-reverse)
 	(tactile-start-new-member))
-      (insert-string (member-text member)))) )
+      (insert-string (member-text member)))))
 
-(defun tactile-replace-current-member (new-member &optional jump)
+(defun tactile-replace-active-member (new-member)
   (combine-after-change-calls
-   (if jump
-       (delete-current-form t jump)
-     (delete-current-member))
-   (tactile-insert-member new-member)))
+    (tactile-delete-active-member)
+    (tactile-insert-member new-member)))
 
 (defun tactile-yank (&optional reversep)
   (interactive)
@@ -600,10 +588,10 @@
 	 (tactile-yank))
 	((< (1+ (second tactile-kill-ring-last-yank)) (length tactile-kill-ring))	
 	 (let ((new-index (1+ (second tactile-kill-ring-last-yank))))
-	   (tactile-replace-current-member (nth new-index tactile-kill-ring))
+	   (tactile-replace-active-member (nth new-index tactile-kill-ring))
 	   (setq tactile-kill-ring-last-yank (list (nth new-index tactile-kill-ring) new-index))))
 	(t
-	 (tactile-replace-current-member (first tactile-kill-ring))
+	 (tactile-replace-active-member (first tactile-kill-ring))
 	 (setq tactile-kill-ring-last-yank (list (first tactile-kill-ring) 0)))))
 
 (defun reset-active-member ()
@@ -612,9 +600,10 @@
 
 (defun expand-active-member ()
   (interactive)
-  (if tactile-current-form-depth
-      (incf tactile-current-form-depth)
-    (setq tactile-current-form-depth 0)))
+  (unless (equal (active-member) (tactile-get-top-level-form))
+    (if tactile-current-form-depth
+	(incf tactile-current-form-depth)
+      (setq tactile-current-form-depth 0))))
 
 (defun shrink-active-member ()
   (interactive)
@@ -630,7 +619,7 @@
 	(case (member-type member)
 	  (:string (cond ((or (= (member-start member) (point))
 			      (= (+ (member-start member) 2) (member-end member)))
-			  (delete-current-member))
+			  (tactile-delete-active-member))
 			 ((or (= (member-start member) (1- (point)))
 			      (= (member-end member) (point)))
 			  (string-to-atom))
@@ -640,13 +629,13 @@
 			  (delete-char -1))))
 	  (:atom (cond ((and (= (member-start member) (point))
 			     (and (char-before) (= (char-before) 40)))
-			(delete-current-form))
+			(tactile-delete-active-member))
 		       ((= (member-start member) (point))
-			(delete-current-member))
+			(tactile-delete-active-member))
 		       (t
 			(delete-char -1)))))
       (if (and (char-before) (= (char-before) 40))
-	  (delete-current-form)
+	  (tactile-delete-active-member)
 	(delete-char -1)))))
 
 (defun handle-space ()
@@ -695,7 +684,7 @@
   (define-key (current-local-map) (kbd "\"") 'handle-quote)
   (define-key (current-local-map) (kbd "<backspace>") 'handle-backspace)
   (define-key (current-local-map) (kbd "SPC") 'handle-space)
-  (define-key (current-local-map) (kbd "C-c C-k") 'kill-current-member)
+  (define-key (current-local-map) (kbd "C-c C-k") 'tactile-kill-active-member)
   (define-key (current-local-map) (kbd "C-c C-y") 'tactile-yank)
 
   (define-key (current-local-map) (kbd "C-q") 'switch-back)
