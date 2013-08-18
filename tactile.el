@@ -3,6 +3,7 @@
 (defmacro if-let (binding &rest body)
   "Binds the result of an if conditional statement so that it can be used in the 
   body of the if statement."
+  (declare (indent defun))
   `(let ((,(first binding) ,(second binding)))
      (if ,(first binding)
 	 ,@body)))
@@ -40,15 +41,14 @@
 (defvar-local no-parse-forms nil 
   "Boolean to block the parsing of the top level forms when we know they are imbalanced")
 
-(defvar-local tactile-current-form-depth 0)
+(defvar-local tactile-current-form-depth nil)
 
 (defvar tactile-kill-ring nil)
 (defvar tactile-kill-ring-size 10)
 (defvar tactile-kill-ring-last-yank nil)
 
 (defvar-local top-level-overlay nil)
-(defvar-local at-point-overlay nil)
-(defvar-local atom-at-point-overlay nil)
+(defvar-local active-member-overlay nil)
 
 ;;; Form reading and manipulation
 
@@ -310,6 +310,15 @@
       (when form
 	(in-which-member (read-form-members form) (point))))))
 
+(defun active-member ()
+  (member-at-point tactile-current-form-depth))
+
+(defmacro tactile-with-active-member (member-name &rest body)
+  (declare (indent defun))
+  `(let ((,(first member-name) (active-member)))
+     (when ,(first member-name)
+       ,@body)))
+
 (defun surrounding-three-members (&optional jump)
   (let* ((form (tactile-get-form-at-point (or jump 0)))
 	 (members (if form (read-form-members form) (top-level-forms-as-atoms)))
@@ -327,13 +336,6 @@
       (setq prev (first members))
       (setq members (rest members)))
     result))
-
-(defun tactile-highlight-atom-at-point ()
-  (let ((member (member-at-point)))
-    (when atom-at-point-overlay
-      (delete-overlay atom-at-point-overlay))
-    (when member
-      (move-overlay atom-at-point-overlay (member-start member) (member-end member)))))
 
 (defun trim-unecessary-form-spaces (form)
   (let ((real-point (point)))
@@ -370,6 +372,20 @@
        (decf no-parse-forms))
      (tactile-on-change nil nil nil)))
 
+(defun tactile-highlight-atom-at-point ()
+  (let ((member (member-at-point)))
+    (when atom-at-point-overlay
+      (delete-overlay atom-at-point-overlay))
+    (when member
+      (move-overlay atom-at-point-overlay (member-start member) (member-end member)))))
+
+(defun tactile-highlight-active-member ()
+  (let ((member (active-member)))
+    (when active-member-overlay
+      (delete-overlay active-member-overlay))
+    (when member
+      (move-overlay active-member-overlay (member-start member) (member-end member)))))
+
 (defun tactile-highlight-top-level-form ()
   (let ((form (tactile-get-top-level-form)))
     (when top-level-overlay
@@ -386,13 +402,13 @@
 
 (defun highlight-forms ()
   (tactile-highlight-top-level-form)
-  (tactile-highlight-selected-form)
-  (tactile-highlight-atom-at-point))
+  (tactile-highlight-active-member))
 
 (defun tactile-on-move ()
   (when (not (equal (member-text (first tactile-kill-ring-last-yank))
-		    (member-text (member-at-point))))
+		    (member-text (active-member))))
     (setq tactile-kill-ring-last-yank nil))
+  (reset-active-member)
   (highlight-forms))
 
 (defun goto-member (member &optional reversep)
@@ -590,6 +606,23 @@
 	 (tactile-replace-current-member (first tactile-kill-ring))
 	 (setq tactile-kill-ring-last-yank (list (first tactile-kill-ring) 0)))))
 
+(defun reset-active-member ()
+  (interactive)
+  (setq tactile-current-form-depth nil))
+
+(defun expand-active-member ()
+  (interactive)
+  (if tactile-current-form-depth
+      (incf tactile-current-form-depth)
+    (setq tactile-current-form-depth 0)))
+
+(defun shrink-active-member ()
+  (interactive)
+  (when tactile-current-form-depth
+    (if (zerop tactile-current-form-depth)
+	(setq tactile-current-form-depth nil)
+      (decf tactile-current-form-depth))))
+
 (defun handle-backspace ()
   (interactive)
   (let ((member (member-at-point)))
@@ -640,12 +673,10 @@
   "Major mode extending emacs lisp mode for structural editing of lisp
    code"
   (setq top-level-overlay (make-overlay 0 0))
-  (setq at-point-overlay (make-overlay 0 0))
-  (setq atom-at-point-overlay (make-overlay 0 0))
+  (setq active-member-overlay (make-overlay 0 0))
 
-  (overlay-put top-level-overlay 'face 'tactile-top-level-form-face)
-  (overlay-put at-point-overlay 'face 'tactile-form-at-point-face)
-  (overlay-put atom-at-point-overlay 'face 'tactile-atom-at-point-face)
+  (overlay-put top-level-overlay 'face 'highlight)
+  (overlay-put active-member-overlay 'face 'region)
 
   (add-hook 'after-change-functions 'tactile-on-change nil t)
   (add-hook 'post-command-hook 'tactile-on-move nil t)
@@ -655,6 +686,8 @@
 
   (define-key (current-local-map) (kbd "M-n") 'move-foreward)
   (define-key (current-local-map) (kbd "M-p") 'move-backward)
+  (define-key (current-local-map) (kbd "M-N") 'shrink-active-member)
+  (define-key (current-local-map) (kbd "M-P") 'expand-active-member)
   (define-key (current-local-map) (kbd "TAB") 'tactile-start-new-member)
   (define-key (current-local-map) (kbd "<backtab>") 'tactile-start-new-member-reverse)
   (define-key (current-local-map) (kbd "(") 'insert-parentheses)
