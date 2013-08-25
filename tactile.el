@@ -407,12 +407,12 @@
   (tactile-highlight-active-member))
 
 (defun tactile-on-move ()
-  (when (not (equal (member-text (first tactile-kill-ring-last-yank))
-		    (member-text (active-member))))
-    (setq tactile-kill-ring-last-yank nil))
   (when (not (= (point) tactile-last-point))
-    (setq tactile-last-point (point))
-    (reset-active-member))
+    (when (not (equal (member-text (first tactile-kill-ring-last-yank))
+		      (member-text (active-member))))
+      (setq tactile-kill-ring-last-yank nil))
+    (reset-active-member)
+    (setq tactile-last-point (point)))
   (highlight-forms))
 
 (defun goto-member (member &optional reversep)
@@ -447,7 +447,7 @@
       (goto-char (or (member-end (or member prev)) (member-start next)))
       (when (equal (member-type (or member prev)) :form)
 	(forward-char))
-      (insert-char 32)
+      (insert 32)
       (unless (or prev member)
 	(backward-char)))))
 
@@ -457,7 +457,7 @@
       (surrounding-three-members)
     (when (or prev member next)
       (goto-char (or (member-start (or member next)) (member-end prev)))
-      (insert-char 32)
+      (insert 32)
       (when (or member next)
 	(backward-char)))))
 
@@ -466,25 +466,28 @@
   (let ((member (member-at-point)))
     (if member
 	(case (member-type member)
-	  (:string (insert-char 40))
-	  (:atom (tactile-start-new-member)
-		 (insert-parentheses)))
-      (insert-char 40)
-      (insert-char 41)
-      (backward-char))))
+	  (:string (insert 40))
+	  (:atom (combine-after-change-calls
+		   (tactile-start-new-member)
+		   (insert-parentheses))))
+      (combine-after-change-calls
+	(insert "()")
+	(backward-char)))))
 
 (defun handle-close-parentheses ()
   (interactive)
   (let ((member (member-at-point)))
     (if member
 	(case (member-type member)
-	  (:string (insert-char 41))
-	  (:atom (goto-char (member-end (tactile-get-form-at-point)))
-		 (forward-char)
-		 (tactile-start-new-member)))
-    (goto-char (member-end (tactile-get-form-at-point)))
-    (forward-char)
-    (tactile-start-new-member))))
+	  (:string (insert 41))
+	  (:atom (combine-after-change-calls
+		   (goto-char (member-end (tactile-get-form-at-point)))
+		   (forward-char)
+		   (tactile-start-new-member))))
+      (combine-after-change-calls
+	(goto-char (member-end (tactile-get-form-at-point)))
+	(forward-char)
+	(tactile-start-new-member)))))
 
 (defun atom-to-string ()
   (let ((member (member-at-point)))
@@ -492,9 +495,9 @@
       (save-excursion
 	(combine-after-change-calls
 	 (goto-char (member-end member))
-	 (insert-char 34)
+	 (insert 34)
 	 (goto-char (member-start member))
-	 (insert-char 34))))))
+	 (insert 34))))))
 
 (defun string-to-atom ()
   (let ((member (member-at-point)))
@@ -514,7 +517,7 @@
 	  (:atom (if (= (point) (member-end member))
 		     (progn
 		       (tactile-start-new-member)
-		       (insert-string "\"\"")
+		       (insert "\"\"")
 		       (backward-char))
 		   (atom-to-string)))
 	  (:string (cond ((> (1+ (point)) (member-end member))
@@ -522,8 +525,8 @@
 			 ((= (point) (member-start member))
 			  (forward-char))
 			 (t
-			  (insert-string "\\\"")))))
-      (insert-string "\"\"")
+			  (insert "\\\"")))))
+      (insert "\"\"")
       (backward-char))))
 
 (defun tactile-delete-member (member)
@@ -536,7 +539,7 @@
       (delete-char -1))
     (when (and (char-before) (not (= (char-before) 40))
 	       (char-after) (not (= (char-after) 41)))
-      (insert-char 32))))
+      (insert 32))))
 
 (defun tactile-delete-active-member (&optional force)
   (interactive)
@@ -570,7 +573,7 @@
       (if reversep
 	  (tactile-start-new-member-reverse)
 	(tactile-start-new-member))
-      (insert-string (member-text member)))))
+      (insert (member-text member)))))
 
 (defun tactile-replace-active-member (new-member)
   (combine-after-change-calls
@@ -646,10 +649,10 @@
 			   (= (member-end member) (point))))
 	     (if (equal (member-type member) :string)
 		 (combine-after-change-calls
-		  (insert-char 32))
+		  (insert 32))
 	       ;(combine-after-change-calls
-		;(insert-char 92)
-		;(insert-char 32))
+		;(insert 92)
+		;(insert 32))
 	       ))
 	    ((= (member-end member) (point))
 	     (tactile-start-new-member))
@@ -672,6 +675,7 @@
 
   (setq tactile-quote-markers (tactile-get-quote-markers))
   (setq tactile-top-level-forms (tactile-find-top-level-forms))
+  (setq tactile-last-point (point))
 
   (define-key (current-local-map) (kbd "M-n") 'move-foreward)
   (define-key (current-local-map) (kbd "M-p") 'move-backward)
