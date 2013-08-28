@@ -342,6 +342,7 @@
 (defun trim-unecessary-form-spaces (form)
   (let ((real-point (point)))
     (save-excursion
+      (combine-after-change-calls
       ;(goto-char (member-start form))
       ;(while (<= (point) (member-end form))
 	;(cond ((and (char-before) (= (char-before) 40)
@@ -354,14 +355,14 @@
 	       ;(delete-char -1))
 	      ;(t
 	       ;(forward-char))))
-      (goto-char (member-start (tactile-get-top-level-form)))
-      (indent-pp-sexp))))
+	(goto-char (member-start (tactile-get-top-level-form)))
+	(indent-pp-sexp)))))
 
 (defun tactile-on-change (x y z)
-  (setq tactile-quote-markers (tactile-get-quote-markers))
-  (setq tactile-top-level-forms (tactile-find-top-level-forms))
   (when (tactile-get-top-level-form)
-    (trim-unecessary-form-spaces (tactile-get-top-level-form))))
+    (trim-unecessary-form-spaces (tactile-get-top-level-form)))
+  (setq tactile-quote-markers (tactile-get-quote-markers))
+  (setq tactile-top-level-forms (tactile-find-top-level-forms)))
 
 (defmacro tactile-one-change (&rest body)
   `(progn
@@ -407,9 +408,9 @@
   (tactile-highlight-active-member))
 
 (defun tactile-on-move ()
-  (when (not (= (point) tactile-last-point))
-    (when (not (equal (member-text (first tactile-kill-ring-last-yank))
-		      (member-text (active-member))))
+  (unless (= (point) tactile-last-point)
+    (unless (or (equal last-command 'tactile-yank)
+		(equal this-command 'tactile-yank))
       (setq tactile-kill-ring-last-yank nil))
     (reset-active-member)
     (setq tactile-last-point (point)))
@@ -445,8 +446,6 @@
       (surrounding-three-members)
     (when (or prev member next)
       (goto-char (or (member-end (or member prev)) (member-start next)))
-      (when (equal (member-type (or member prev)) :form)
-	(forward-char))
       (insert 32)
       (unless (or prev member)
 	(backward-char)))))
@@ -482,11 +481,9 @@
 	  (:string (insert 41))
 	  (:atom (combine-after-change-calls
 		   (goto-char (member-end (tactile-get-form-at-point)))
-		   (forward-char)
 		   (tactile-start-new-member))))
       (combine-after-change-calls
 	(goto-char (member-end (tactile-get-form-at-point)))
-	(forward-char)
 	(tactile-start-new-member)))))
 
 (defun atom-to-string ()
