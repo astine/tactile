@@ -92,8 +92,8 @@
 (defun get-best-quote-marker (&optional quote-markers)
   "Returns the quote marker which is furthest in the file, while still being
   before the point."
-  (let ((quote-markers (or quote-markers tactile-quote-markers '((0 nil)))))
-    (while (<= (point) (caar quote-markers))
+  (let ((quote-markers (or quote-markers tactile-quote-markers `((,(point-min-marker) nil)))))
+    (while (< (point) (caar quote-markers))
       (setq quote-markers (rest quote-markers)))
     (first quote-markers)))
 
@@ -136,11 +136,11 @@
   is in quotes. This is to make testing whether the point is in a pair of quotes 
   faster."
   (save-excursion
-    (let ((quote-markers (list '(0 nil))))
+    (let ((quote-markers (list `(,(point-min-marker) nil))))
       (goto-char 0)
       (while (> (count-lines (point) (point-max)) 10)
 	(forward-line 10)
-	(push (list (point)
+	(push (list (point-marker)
 		    (in-quotes-p (point) (first quote-markers)))
 	      quote-markers))
       quote-markers)))
@@ -191,8 +191,8 @@
 	(when (and (char-after) (= (char-after) 40)
 		    (not (in-quotes-p)) (not (in-comment-p)))
 	  (let ((form nil))
-	    (push (point) form)
-	    (let ((end (1+ (find-closing-paren))))
+	    (push (point-marker) form)
+	    (let ((end (copy-marker (1+ (find-closing-paren)))))
 	      (if end ;If this form does not close, don't add it and finish parsing
 		  (progn
 		    (push end form)
@@ -339,28 +339,38 @@
       (setq members (rest members)))
     result))
 
-(defun trim-unecessary-form-spaces (form)
+(defun trim-member-whitespace (member &optional recursive real-point)
+  (goto-char (member-end member))
+  (while (and (char-after) (or (= (char-after) 32) (= (char-after) 9))
+	      (not (= (point) (or real-point -1)))
+	      (not (= (1+ (point)) (or real-point -1))))
+    (delete-char 1))
+  (unless (and (char-after) (or (= (char-after) 32) (= (char-after) 41)))
+    (insert-before-markers 32))
+  (when (and recursive (equal (member-type member) :form))
+    (tactile-balance-form-whitespace member recursive real-point)))
+
+(defun tactile-balance-form-whitespace (form &optional recursive real-point)
+  (let ((real-point (or real-point (point-marker))))
+    (save-excursion
+      (combine-after-change-calls
+	(goto-char (1+ (member-start form)))
+	(while (and (char-after) (or (= (char-after) 32) (= (char-after) 9)))
+	  (delete-char 1))
+	(mapcar (lambda (member) (trim-member-whitespace member recursive real-point))
+		(nreverse (read-form-members form)))))))
+
+(defun tactile-pretty-print-form (form)
   (let ((real-point (point)))
     (save-excursion
       (combine-after-change-calls
-      ;(goto-char (member-start form))
-      ;(while (<= (point) (member-end form))
-	;(cond ((and (char-before) (= (char-before) 40)
-		    ;(char-after) (or (= (char-before) 32) (= (char-before) 9))
-		    ;(not (= (point) real-point)))
-	       ;(delete-char 1))
-	      ;((and (char-before) (or (= (char-before) 32) (= (char-before) 9))
-		  ;(char-after) (= (char-after) 41)
-		  ;(not (= (point) real-point)))
-	       ;(delete-char -1))
-	      ;(t
-	       ;(forward-char))))
+	(tactile-balance-form-whitespace form t)
 	(goto-char (member-start (tactile-get-top-level-form)))
 	(indent-pp-sexp)))))
 
 (defun tactile-on-change (x y z)
   (when (tactile-get-top-level-form)
-    (trim-unecessary-form-spaces (tactile-get-top-level-form)))
+    (tactile-pretty-print-form (tactile-get-top-level-form)))
   (setq tactile-quote-markers (tactile-get-quote-markers))
   (setq tactile-top-level-forms (tactile-find-top-level-forms)))
 
@@ -483,8 +493,10 @@
 		   (goto-char (member-end (tactile-get-form-at-point)))
 		   (tactile-start-new-member))))
       (combine-after-change-calls
-	(goto-char (member-end (tactile-get-form-at-point)))
-	(tactile-start-new-member)))))
+	(let ((form (tactile-get-form-at-point)))
+	  (goto-char (member-end form))
+	  (tactile-start-new-member)
+	  (tactile-balance-form-whitespace form))))))
 
 (defun atom-to-string ()
   (let ((member (member-at-point)))
