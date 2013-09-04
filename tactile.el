@@ -240,13 +240,13 @@
 		((and (char-after) (= (char-after) 10) (in-comment-p))
 		 (goto-char (in-comment-p)))
 		((and (zerop form-depth) (char-after) (= (char-after) 40))
-		 (setq begin (point)))
+		 (setq begin (point-marker)))
 		((and (char-after) (= (char-after) 41))
 		 (incf form-depth 1))
 		((and (char-after) (= (char-after) 40))
 		 (decf form-depth 1))))
 	(when begin
-	  (setq end (1+ (find-closing-paren search-area-end)))
+	  (setq end (copy-marker (1+ (find-closing-paren search-area-end))))
 	  (when end
 	    (list begin end (buffer-substring-no-properties begin end) :form)))))))
 
@@ -373,17 +373,6 @@
     (tactile-pretty-print-form (tactile-get-top-level-form)))
   (setq tactile-quote-markers (tactile-get-quote-markers))
   (setq tactile-top-level-forms (tactile-find-top-level-forms)))
-
-(defmacro tactile-one-change (&rest body)
-  `(progn
-     (if no-parse-forms
-	 (incf no-parse-forms)
-       (setq no-parse-forms 0))
-     ,@body
-     (if (zerop no-parse-forms)
-	 (setq no-parse-forms nil)
-       (decf no-parse-forms))
-     (tactile-on-change nil nil nil)))
 
 (defun tactile-highlight-atom-at-point ()
   (let ((member (member-at-point)))
