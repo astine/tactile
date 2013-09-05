@@ -70,15 +70,24 @@
   "Returns the type of the member"
   (fourth member))
 
+(defun member-quoted (member)
+  "Returns whether the member is quoted: \"'`\""
+  (fifth member))
+
+(defun point-equals (char &optional point)
+  "Returns true if the char at point is equal to char"
+  (and (char-after (or point (point)))
+       (= (char-after (or point (point))) char)))
+
 (defun quote-escaped-p (&optional point)
   "Returns true if the character under the point is a quote, and that quote
   is escaped by an odd number of backslashes."
   (let ((point (or point (point))))
     (save-excursion
       (goto-char point)
-      (when (and (char-after) (= (char-after) 34))
+      (when (point-equals 34)
 	(let ((slash-count 0))
-	  (while (and (char-before) (= (char-before) 92))
+	  (while (point-equals 92 (1- (point)))
 	    (incf slash-count)
 	    (backward-char))
 	  (oddp slash-count))))))
@@ -86,7 +95,7 @@
 (defun at-unescaped-quote-p ()
   "Returns true if the character under the point is a double quote and
   that quote is not escaped by an odd number of backslashes."
-  (and (char-after) (= (char-after) ?\")
+  (and (point-equals ?\")
        (not (quote-escaped-p))))
 
 (defun get-best-quote-marker (&optional quote-markers)
@@ -108,7 +117,7 @@
 	  (cond ((at-unescaped-quote-p)
 		 (incf quote-count)
 		 (forward-char))
-		((and (char-after) (= (char-after) 59) 
+		((and (point-equals 59)
 		      (if (second origin)
 			  (oddp quote-count)
 			(evenp quote-count))) ;on comment
@@ -153,8 +162,7 @@
       (let ((in-comment-p nil))
 	(while (and (< (point) (line-end-position))
 		    (not in-comment-p))
-	  (when (and (char-after)
-		     (= (char-after) 59)
+	  (when (and (point-equals 59)
 		     (not (in-quotes-p)))
 	    (setq in-comment-p (point)))
 	  (forward-char))
@@ -170,13 +178,13 @@
 					;40 is open paren, 41 is close paren
 	(cond ((at-unescaped-quote-p) ;on quotation marks
 	       (find-closing-quote))
-	      ((and (char-after) (= (char-after) 59)) ;on comment
+	      ((point-equals 59) ;on comment
 	       (forward-line))
-	      ((and (zerop depth) (char-after) (= (char-after) 41))
+	      ((and (zerop depth) (point-equals 41))
 	       (setq location (point)))
-	      ((and (char-after) (= (char-after) 40))
+	      ((point-equals 40)
 	       (incf depth 1))
-	      ((and (char-after) (= (char-after) 41))
+	      ((point-equals 41)
 	       (decf depth 1))))
       location)))
 	
@@ -188,8 +196,8 @@
       (goto-char (point-min))
       (while (< (point) (point-max))
 					;40 is open paren, 41 is close paren
-	(when (and (char-after) (= (char-after) 40)
-		    (not (in-quotes-p)) (not (in-comment-p)))
+	(when (and (point-equals 40)
+		   (not (in-quotes-p)) (not (in-comment-p)))
 	  (let ((form nil))
 	    (push (point-marker) form)
 	    (let ((end (copy-marker (1+ (find-closing-paren)))))
@@ -223,6 +231,7 @@
     (save-excursion
       (let ((begin nil)
 	    (end nil)
+	    (quoted nil)
 	    (form-depth (or jump 0)))
 	(when (at-unescaped-quote-p)
 	  (backward-char))
@@ -231,57 +240,89 @@
 	  (backward-char))
 	(when (in-comment-p)
 	  (goto-char (in-comment-p)))
-	(unless (or (and (char-after) (= (char-after) 41)) (= (point) (point-max)))
+	(when (and (or (point-equals 96) (point-equals 39) (point-equals 44)
+		       (and (point-equals 64) (point-equals 44 (1- (point)))))
+		   (point-equals 40 (1+ (point))))
+	  (forward-char))
+	(when (and (point-equals 44) (point-equals 64 (1+ (point))))
+	  (forward-char 2))
+	(unless (or (point-equals 41) (= (point) (point-max)))
 	  (forward-char))
 	(while (and (> (point) search-area-start) (not begin))
 	  (backward-char)
 	  (cond ((at-unescaped-quote-p)
 		 (find-opening-quote))
-		((and (char-after) (= (char-after) 10) (in-comment-p))
+		((and (point-equals 10) (in-comment-p))
 		 (goto-char (in-comment-p)))
-		((and (zerop form-depth) (char-after) (= (char-after) 40))
-		 (setq begin (point-marker)))
-		((and (char-after) (= (char-after) 41))
+		((and (zerop form-depth) (point-equals 40))
+		 (cond ((or (point-equals 96 (1- (point)))
+			    (point-equals 39 (1- (point))))
+			(setq quoted :quoted)
+			(setq begin (copy-marker (1- (point)))))
+		       ((point-equals 44 (1- (point)))
+			(setq quoted :unquoted)
+			(setq begin (copy-marker (1- (point)))))
+		       ((and (point-equals 64 (1- (point)))
+			     (point-equals 44 (- (point) 2)))
+			(setq quoted :unquoted-list)
+			(setq begin (copy-marker (- (point) 2))))
+		       (t (setq begin (point-marker)))))
+		((point-equals 41)
 		 (incf form-depth 1))
-		((and (char-after) (= (char-after) 40))
+		((point-equals 40)
 		 (decf form-depth 1))))
 	(when begin
 	  (setq end (copy-marker (1+ (find-closing-paren search-area-end))))
 	  (when end
-	    (list begin end (buffer-substring-no-properties begin end) :form)))))))
+	    (list begin end (buffer-substring-no-properties begin end) :form quoted)))))))
 
 ;;; Atom reading and manipulation
 
-(defun read-atom ()
-  (let ((start (point))
+(defun read-atom (&optional quote)
+  (let ((start (- (point) (or (case quote ((:quote :unquote) 1) (:unquote-list 2)) 0)))
 	(end (1- (re-search-forward "[\n\s\t()]"))))
     (goto-char end)
-    (list start end (buffer-substring-no-properties start end) :atom)))
+    (list start end (buffer-substring-no-properties start end) :atom quote)))
 
-(defun read-str ()
-  (let ((start (point)))
+(defun read-str (&optional quote)
+  (let ((start (- (point) (or (case quote ((:quote :unquote) 1) (:unquote-list 2)) 0))))
     (find-closing-quote)
     (forward-char)
     (list start (point)  (buffer-substring-no-properties start (point)) :string)))
 
-(defun read-form ()
-  (let ((start (point))
+(defun read-form (&optional quote)
+  (let ((start (- (point) (or (case quote ((:quote :unquote) 1) (:unquote-list 2)) 0)))
 	(end (1+ (find-closing-paren))))
     (goto-char end)
     (list start end (buffer-substring-no-properties start end) :form)))
+
+(defun read-member (&optional quote)
+  (when (char-after)
+    (case (char-after)
+      (34 (read-str quote))
+      (40 (read-form quote))
+      (96 (forward-char)
+	  (read-member :quote))
+      (39 (forward-char)
+	  (read-member :quote))
+      (44 (forward-char)
+	  (read-member :unquote))
+      (64 (if (equal quote :unquote)
+	      (progn
+		(forward-char)
+		(read-member :unquote-list))
+	    (read-atom quote)))
+      (t (read-atom quote)))))
 
 (defun read-form-members (form)
   (save-excursion
     (when form
       (goto-char (1+ (member-start form)))
+      (when (member-quoted form)
+	(forward-char))
       (let ((members nil))
 	(while (< (point) (1- (member-end form)))
-	  (cond ((= (char-after) 34)
-		 (push (read-str) members))
-		((= (char-after) 40)
-		 (push (read-form) members))
-		(t
-		 (push (read-atom) members)))
+	  (push (read-member) members)
 	  (re-search-forward "[^\n\s\t]")
 	  (backward-char))
 	(nreverse members)))))
@@ -531,9 +572,9 @@
   (combine-after-change-calls
     (goto-char (member-start member))
     (delete-char (- (member-end member) (member-start member)))
-    (while (and (char-after) (= (char-after) 32))
+    (while (point-equals 32)
       (delete-char 1))
-    (while (and (char-before) (= (char-before) 32))
+    (while (point-equals 32 (1- (point)))
       (delete-char -1))
     (when (and (char-before) (not (= (char-before) 40))
 	       (char-after) (not (= (char-after) 41)))
