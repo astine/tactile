@@ -187,6 +187,18 @@
 	      ((point-equals 41)
 	       (decf depth 1))))
       location)))
+
+(defun lisp-quoted (&optional point)
+  "Returns whether the member beginning at point is lisp quoted, lisp unquoted,
+   or otherwise."
+  (cond ((or (point-equals 96 (1- (or point (point))))
+	     (point-equals 39 (1- (or point (point)))))
+	 :quoted)
+	((point-equals 44 (1- (or point (point))))
+	 :unquoted)
+	((and (point-equals 64 (1- (or point (point))))
+	      (point-equals 44 (- (or point (point)) 2)))
+	 :unquoted-list)))
 	
 (defun tactile-find-top-level-forms ()
   "Traverses the entire buffer looking for top level forms and returns a list of
@@ -199,7 +211,11 @@
 	(when (and (point-equals 40)
 		   (not (in-quotes-p)) (not (in-comment-p)))
 	  (let ((form nil))
-	    (push (point-marker) form)
+	    (case (lisp-quoted)
+	      (:quoted (push (copy-marker (1- (point))) form))
+	      (:unquoted (push (copy-marker (1- (point))) form))
+	      (:unquoted-list (push (copy-marker (- (point) 2)) form))
+	      (t (push (point-marker) form)))
 	    (let ((end (copy-marker (1+ (find-closing-paren)))))
 	      (if end ;If this form does not close, don't add it and finish parsing
 		  (progn
@@ -207,6 +223,7 @@
 		    (goto-char (1+ (first form)))
 		    (push (buffer-substring-no-properties (second form) (first form)) form)
 		    (push :form form)
+		    (push (lisp-quoted (car (last form))) form)
 		    (push (nreverse form) forms))
 		(goto-char (1- (point-max)))))))
 	(when (< (point) (point-max))
@@ -255,18 +272,12 @@
 		((and (point-equals 10) (in-comment-p))
 		 (goto-char (in-comment-p)))
 		((and (zerop form-depth) (point-equals 40))
-		 (cond ((or (point-equals 96 (1- (point)))
-			    (point-equals 39 (1- (point))))
-			(setq quoted :quoted)
-			(setq begin (copy-marker (1- (point)))))
-		       ((point-equals 44 (1- (point)))
-			(setq quoted :unquoted)
-			(setq begin (copy-marker (1- (point)))))
-		       ((and (point-equals 64 (1- (point)))
-			     (point-equals 44 (- (point) 2)))
-			(setq quoted :unquoted-list)
-			(setq begin (copy-marker (- (point) 2))))
-		       (t (setq begin (point-marker)))))
+		 (case (lisp-quoted)
+		   (:quoted (setq begin (copy-marker (1- (point)))))
+		   (:unquoted (setq begin (copy-marker (1- (point)))))
+		   (:unquoted-list (setq begin (copy-marker (- (point) 2))))
+		   (t (setq begin (point-marker))))
+		 (setq quoted (lisp-quoted)))
 		((point-equals 41)
 		 (incf form-depth 1))
 		((point-equals 40)
@@ -328,12 +339,7 @@
 	(nreverse members)))))
 
 (defun top-level-forms-as-atoms ()
-  (mapcar (lambda (form)
-	    (list (member-start form)
-		  (member-end form)
-		  nil
-		  :form))
-       tactile-top-level-forms))
+  tactile-top-level-forms)
  
 (defun in-which-member (members point &optional include-nearest-p)
   (cl-labels ((find-current-atom (atoms)
@@ -486,7 +492,9 @@
       (surrounding-three-members)
     (when (or prev member next)
       (goto-char (or (member-end (or member prev)) (member-start next)))
-      (insert 32)
+      (if (equal (or member prev) (tactile-get-top-level-form))
+	  (insert 10 10)
+	(insert 32))
       (unless (or prev member)
 	(backward-char)))))
 
@@ -507,8 +515,12 @@
 	(case (member-type member)
 	  (:string (insert 40))
 	  (:atom (combine-after-change-calls
-		   (tactile-start-new-member)
-		   (insert-parentheses))))
+		   (if (lisp-quoted)
+		       (progn
+			 (insert "()")
+			 (backward-char))
+		     (tactile-start-new-member)
+		     (insert-parentheses)))))
       (combine-after-change-calls
 	(insert "()")
 	(backward-char)))))
@@ -697,6 +709,20 @@
 	     (tactile-start-new-member))
 	    ((= (member-start member) (point))
 	     nil)))))
+
+(defun quote-active-member (quote-type)
+  (save-excursion
+    (combine-after-change-calls
+      (let ((member (active-member)))
+	(goto-char (member-start member))
+	(case (member-quoted member)
+	  ((:quoted :backquoted :unquoted) (delete-char 1))
+	  (:unquoted-list (delete-char 2))
+	  (t (case quote-type
+	       (:quote (insert 39))
+	       (:backquote (insert 96))
+	       (:unquote (insert 44))
+	       (:unquote-list (insert 44 64)))))))))
   
 (defun switch-back () (interactive) (remove-overlays) (emacs-lisp-mode))
 
