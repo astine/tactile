@@ -691,8 +691,10 @@
 			(tactile-delete-active-member))
 		       (t
 			(delete-char -1)))))
-      (if (and (char-before) (= (char-before) 40))
-	  (tactile-delete-active-member)
+      (if (point-equals 40 (1- (point)))
+	  (if (point-equals 41)
+	      (tactile-delete-member (tactile-get-form-at-point))
+	    (tactile-delete-active-member))
 	(delete-char -1)))))
 
 (defun handle-space ()
