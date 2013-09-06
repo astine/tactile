@@ -533,6 +533,9 @@
 	  (:string (insert 41))
 	  (:atom (combine-after-change-calls
 		   (goto-char (member-end (tactile-get-form-at-point)))
+		   (tactile-start-new-member)))
+	  (:form (combine-after-change-calls
+		   (goto-char (1+ (member-end member)))
 		   (tactile-start-new-member))))
       (combine-after-change-calls
 	(let ((form (tactile-get-form-at-point)))
