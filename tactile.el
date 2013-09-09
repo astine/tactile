@@ -325,17 +325,18 @@
       (t (read-atom quote)))))
 
 (defun read-form-members (form)
-  (save-excursion
-    (when form
-      (goto-char (1+ (member-start form)))
-      (when (member-quoted form)
-	(forward-char))
-      (let ((members nil))
-	(while (< (point) (1- (member-end form)))
-	  (push (read-member) members)
-	  (re-search-forward "[^\n\s\t]")
-	  (backward-char))
-	(nreverse members)))))
+  (unless undo-in-progress
+    (save-excursion
+      (when form
+	(goto-char (1+ (member-start form)))
+	(when (member-quoted form)
+	  (forward-char))
+	(let ((members nil))
+	  (while (< (point) (1- (member-end form)))
+	    (push (read-member) members)
+	    (re-search-forward "[^\n\s\t]")
+	    (backward-char))
+	  (nreverse members))))))
 
 (defun top-level-forms-as-atoms ()
   tactile-top-level-forms)
@@ -415,10 +416,11 @@
 	(indent-pp-sexp)))))
 
 (defun tactile-on-change (x y z)
-  (when (tactile-get-top-level-form)
-    (tactile-pretty-print-form (tactile-get-top-level-form)))
-  (setq tactile-quote-markers (tactile-get-quote-markers))
-  (setq tactile-top-level-forms (tactile-find-top-level-forms)))
+  (unless undo-in-progress
+    (when (tactile-get-top-level-form)
+      (tactile-pretty-print-form (tactile-get-top-level-form)))
+    (setq tactile-quote-markers (tactile-get-quote-markers))
+    (setq tactile-top-level-forms (tactile-find-top-level-forms))))
 
 (defun tactile-highlight-atom-at-point ()
   (let ((member (member-at-point)))
@@ -453,13 +455,14 @@
   (tactile-highlight-active-member))
 
 (defun tactile-on-move ()
-  (unless (= (point) tactile-last-point)
-    (unless (or (equal last-command 'tactile-yank)
-		(equal this-command 'tactile-yank))
-      (setq tactile-kill-ring-last-yank nil))
-    (reset-active-member)
-    (setq tactile-last-point (point-marker)))
-  (highlight-forms))
+  (unless undo-in-progress
+    (unless (= (point) tactile-last-point)
+      (unless (or (equal last-command 'tactile-yank)
+		  (equal this-command 'tactile-yank))
+	(setq tactile-kill-ring-last-yank nil))
+      (reset-active-member)
+      (setq tactile-last-point (point-marker)))
+    (highlight-forms)))
 
 (defun goto-member (member &optional reversep)
   (case (member-type member)
