@@ -74,6 +74,13 @@
   "Returns whether the member is quoted: \"'`\""
   (fifth member))
 
+(defun member-start-unquoted (member)
+  "Returns the buffer location of member's start, after any lisp quotes"
+  (case (member-quoted member)
+    (:unquote-list (+ 2 (member-start member)))
+    ((:quote :backquote :unquote) (1+ (member-start member)))
+    (t (member-start member))))
+
 (defun point-equals (char &optional point)
   "Returns true if the char at point is equal to char"
   (and (char-after (or point (point)))
@@ -392,7 +399,7 @@
 	      (not (= (point) (or real-point -1)))
 	      (not (= (1+ (point)) (or real-point -1))))
     (delete-char 1))
-  (unless (and (char-after) (or (= (char-after) 32) (= (char-after) 41)))
+  (unless (and (char-after) (or (= (char-after) 32) (= (char-after) 41) (= (char-after) 9)))
     (insert-before-markers 32))
   (when (and recursive (equal (member-type member) :form))
     (tactile-balance-form-whitespace member recursive real-point)))
@@ -417,8 +424,8 @@
 
 (defun tactile-on-change (x y z)
   (unless undo-in-progress
-    (when (tactile-get-top-level-form)
-      (tactile-pretty-print-form (tactile-get-top-level-form)))
+    (if-let (top-level-form (tactile-get-top-level-form))
+      (tactile-pretty-print-form top-level-form))
     (setq tactile-quote-markers (tactile-get-quote-markers))
     (setq tactile-top-level-forms (tactile-find-top-level-forms))))
 
@@ -719,30 +726,36 @@
 
 (defun quote-active-member (quote-type)
   (combine-after-change-calls
-    (let ((member (active-member)))
-      (if (or (not member)
-	      (equal (member-type member) :string))
-	  (unless (and member
-		       (or (<= (point) (member-start member))
-			   (>= (point) (member-end member))))
-	    (case quote-type
-	      (:quote (insert 39))
-	      (:backquote (insert 96))
-	      (:unquote (insert 44))))
-	(save-excursion
-	  (goto-char (member-start member))
-	  (case (member-quoted member)
-	    ((:quote :backquote :unquote) (delete-char 1))
-	    (:unquote-list (delete-char 2)))
-	  (case quote-type
-	    (:quote (unless (equal (member-quoted member) :quote)
-		      (insert 39)))
-	    (:backquote (unless (equal (member-quoted member) :backquote)
-			  (insert 96)))
-	    (:unquote (case (member-quoted member)
-			(:unquote-list)
-			(:unquote (insert 44 64))
-			(t (insert 44))))))))))
+    (flet ((toggle-quotes ()
+			  (goto-char (member-start member))
+			  (case (member-quoted member)
+			    ((:quote :backquote :unquote) (delete-char 1))
+			    (:unquote-list (delete-char 2)))
+			  (case quote-type
+			    (:quote (unless (equal (member-quoted member) :quote)
+				      (insert 39)))
+			    (:backquote (unless (equal (member-quoted member) :backquote)
+					  (insert 96)))
+			    (:unquote (case (member-quoted member)
+					(:unquote-list)
+					(:unquote (insert 44 64))
+					(t (insert 44)))))))
+      (let ((member (active-member)))
+	(if (or (not member)
+		(equal (member-type member) :string))
+	    (unless (and member
+			 (or (<= (point) (member-start member))
+			     (>= (point) (member-end member))))
+	      (case quote-type
+		(:quote (insert 39))
+		(:backquote (insert 96))
+		(:unquote (insert 44))))
+	  ; Emacs has a problem whereby if the character which the point starts
+	  ; at during a save-excursion is deleted, save-excursion fails to restore
+	  ; the character to that point, so we need this awkward construct:
+	  (if (<= (point) (member-start-unquoted member))
+	      (toggle-quotes)
+	    (save-excursion (toggle-quotes))))))))
 
 (defun tactile-quote ()
   (interactive)
