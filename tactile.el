@@ -270,7 +270,7 @@
 	  (forward-char))
 	(when (and (point-equals 44) (point-equals 64 (1+ (point))))
 	  (forward-char 2))
-	(unless (or (point-equals 41) (= (point) (point-max)))
+	(unless (or (point-equals 41) (point-equals 34) (= (point) (point-max)))
 	  (forward-char))
 	(while (and (> (point) search-area-start) (not begin))
 	  (backward-char)
@@ -574,23 +574,24 @@
 
 (defun handle-quote ()
   (interactive)
-  (let ((member (member-at-point)))
-    (if member
-	(case (member-type member)
-	  (:atom (if (= (point) (member-end member))
-		     (progn
-		       (tactile-start-new-member)
-		       (insert "\"\"")
-		       (backward-char))
-		   (atom-to-string)))
-	  (:string (cond ((> (1+ (point)) (member-end member))
-			  (tactile-start-new-member))
-			 ((= (point) (member-start member))
-			  (forward-char))
-			 (t
-			  (insert "\\\"")))))
-      (insert "\"\"")
-      (backward-char))))
+  (combine-after-change-calls
+    (let ((member (member-at-point)))
+      (if member
+	  (case (member-type member)
+	    (:atom (if (= (point) (member-end member))
+		       (progn
+			 (tactile-start-new-member)
+			 (insert "\"\"")
+			 (backward-char))
+		     (atom-to-string)))
+	    (:string (cond ((> (1+ (point)) (member-end member))
+			    (tactile-start-new-member))
+			   ((= (point) (member-start member))
+			    (forward-char))
+			   (t
+			    (insert "\\\"")))))
+	(insert "\"\"")
+	(backward-char)))))
 
 (defun tactile-delete-member (member)
   (combine-after-change-calls
