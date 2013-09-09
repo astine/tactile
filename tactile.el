@@ -191,14 +191,15 @@
 (defun lisp-quoted (&optional point)
   "Returns whether the member beginning at point is lisp quoted, lisp unquoted,
    or otherwise."
-  (cond ((or (point-equals 96 (1- (or point (point))))
-	     (point-equals 39 (1- (or point (point)))))
-	 :quoted)
+  (cond ((point-equals 39 (1- (or point (point))))
+	 :quote)
+	((point-equals 96 (1- (or point (point))))
+	 :backquote)
 	((point-equals 44 (1- (or point (point))))
-	 :unquoted)
+	 :unquote)
 	((and (point-equals 64 (1- (or point (point))))
 	      (point-equals 44 (- (or point (point)) 2)))
-	 :unquoted-list)))
+	 :unquote-list)))
 	
 (defun tactile-find-top-level-forms ()
   "Traverses the entire buffer looking for top level forms and returns a list of
@@ -212,9 +213,8 @@
 		   (not (in-quotes-p)) (not (in-comment-p)))
 	  (let ((form nil))
 	    (case (lisp-quoted)
-	      (:quoted (push (copy-marker (1- (point))) form))
-	      (:unquoted (push (copy-marker (1- (point))) form))
-	      (:unquoted-list (push (copy-marker (- (point) 2)) form))
+	      ((:quote :backquote :unquote) (push (copy-marker (1- (point))) form))
+	      (:unquote-list (push (copy-marker (- (point) 2)) form))
 	      (t (push (point-marker) form)))
 	    (let ((end (copy-marker (1+ (find-closing-paren)))))
 	      (if end ;If this form does not close, don't add it and finish parsing
@@ -273,9 +273,8 @@
 		 (goto-char (in-comment-p)))
 		((and (zerop form-depth) (point-equals 40))
 		 (case (lisp-quoted)
-		   (:quoted (setq begin (copy-marker (1- (point)))))
-		   (:unquoted (setq begin (copy-marker (1- (point)))))
-		   (:unquoted-list (setq begin (copy-marker (- (point) 2))))
+		   ((:quote :backquote :unquote) (setq begin (copy-marker (1- (point)))))
+		   (:unquote-list (setq begin (copy-marker (- (point) 2))))
 		   (t (setq begin (point-marker))))
 		 (setq quoted (lisp-quoted)))
 		((point-equals 41)
@@ -459,7 +458,7 @@
 		(equal this-command 'tactile-yank))
       (setq tactile-kill-ring-last-yank nil))
     (reset-active-member)
-    (setq tactile-last-point (point)))
+    (setq tactile-last-point (point-marker)))
   (highlight-forms))
 
 (defun goto-member (member &optional reversep)
@@ -716,19 +715,42 @@
 	     nil)))))
 
 (defun quote-active-member (quote-type)
-  (save-excursion
-    (combine-after-change-calls
-      (let ((member (active-member)))
-	(goto-char (member-start member))
-	(case (member-quoted member)
-	  ((:quoted :backquoted :unquoted) (delete-char 1))
-	  (:unquoted-list (delete-char 2))
-	  (t (case quote-type
-	       (:quote (insert 39))
-	       (:backquote (insert 96))
-	       (:unquote (insert 44))
-	       (:unquote-list (insert 44 64)))))))))
-  
+  (combine-after-change-calls
+    (let ((member (active-member)))
+      (if (and member (equal (member-type member) :string))
+	  (unless (or (<= (point) (member-start member))
+		      (>= (point) (member-end member)))
+	    (case quote-type
+	      (:quote (insert 39))
+	      (:backquote (insert 96))
+	      (:unquote (insert 44))))
+	(save-excursion
+	  (goto-char (member-start member))
+	  (case (member-quoted member)
+	    ((:quote :backquote :unquote) (delete-char 1))
+	    (:unquote-list (delete-char 2)))
+	  (case quote-type
+	    (:quote (unless (equal (member-quoted member) :quote)
+		      (insert 39)))
+	    (:backquote (unless (equal (member-quoted member) :backquote)
+			  (insert 96)))
+	    (:unquote (case (member-quoted member)
+			(:unquote-list)
+			(:unquote (insert 44 64))
+			(t (insert 44))))))))))
+
+(defun tactile-quote ()
+  (interactive)
+  (quote-active-member :quote))
+
+(defun tactile-backquote ()
+  (interactive)
+  (quote-active-member :backquote))
+
+(defun tactile-unquote ()
+  (interactive)
+  (quote-active-member :unquote))
+
 (defun switch-back () (interactive) (remove-overlays) (emacs-lisp-mode))
 
 (define-derived-mode tactile-mode emacs-lisp-mode "Tactile"
@@ -760,6 +782,9 @@
   (define-key (current-local-map) (kbd "SPC") 'handle-space)
   (define-key (current-local-map) (kbd "C-c C-k") 'tactile-kill-active-member)
   (define-key (current-local-map) (kbd "C-c C-y") 'tactile-yank)
+  (define-key (current-local-map) (kbd "'") 'tactile-quote)
+  (define-key (current-local-map) (kbd "`") 'tactile-backquote)
+  (define-key (current-local-map) (kbd ",") 'tactile-unquote)
 
   (define-key (current-local-map) (kbd "C-q") 'switch-back)
   (viper-change-state-to-emacs))
