@@ -289,19 +289,19 @@
 ;;; Atom reading and manipulation
 
 (defun read-atom (&optional quote)
-  (let ((start (- (point) (or (case quote ((:quote :unquote) 1) (:unquote-list 2)) 0)))
+  (let ((start (- (point) (or (case quote ((:quote :unquote :backquote) 1) (:unquote-list 2)) 0)))
 	(end (1- (re-search-forward "[\n\s\t()]"))))
     (goto-char end)
     (list start end (buffer-substring-no-properties start end) :atom quote)))
 
 (defun read-str (&optional quote)
-  (let ((start (- (point) (or (case quote ((:quote :unquote) 1) (:unquote-list 2)) 0))))
+  (let ((start (- (point) (or (case quote ((:quote :unquote :backquote) 1) (:unquote-list 2)) 0))))
     (find-closing-quote)
     (forward-char)
     (list start (point)  (buffer-substring-no-properties start (point)) :string)))
 
 (defun read-form (&optional quote)
-  (let ((start (- (point) (or (case quote ((:quote :unquote) 1) (:unquote-list 2)) 0)))
+  (let ((start (- (point) (or (case quote ((:quote :unquote :backquote) 1) (:unquote-list 2)) 0)))
 	(end (1+ (find-closing-paren))))
     (goto-char end)
     (list start end (buffer-substring-no-properties start end) :form)))
@@ -312,7 +312,7 @@
       (34 (read-str quote))
       (40 (read-form quote))
       (96 (forward-char)
-	  (read-member :quote))
+	  (read-member :backquote))
       (39 (forward-char)
 	  (read-member :quote))
       (44 (forward-char)
@@ -717,9 +717,11 @@
 (defun quote-active-member (quote-type)
   (combine-after-change-calls
     (let ((member (active-member)))
-      (if (and member (equal (member-type member) :string))
-	  (unless (or (<= (point) (member-start member))
-		      (>= (point) (member-end member)))
+      (if (or (not member)
+	      (equal (member-type member) :string))
+	  (unless (and member
+		       (or (<= (point) (member-start member))
+			   (>= (point) (member-end member))))
 	    (case quote-type
 	      (:quote (insert 39))
 	      (:backquote (insert 96))
