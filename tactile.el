@@ -496,7 +496,7 @@
       (unless (or (equal last-command 'tactile-yank)
 		  (equal this-command 'tactile-yank)
 		  (equal last-command 'tactile-yank-again)
-		  (equal this-command 'tactile-yank))
+		  (equal this-command 'tactile-yank-again))
 	(setq tactile-kill-ring-last-yank nil))
       (reset-active-member)
       (setq tactile-last-point (point-marker)))
@@ -633,7 +633,11 @@
 			 (insert "\"\"")
 			 (backward-char))
 		     (atom-to-string)))
-	    (:string (cond ((> (1+ (point)) (member-end member))
+	    (:string (cond ((and (point-equals 92 (1- (point)))
+				 (point-equals 92 (- (point) 2)))
+			    (delete-char -2)
+			    (insert "\\\""))
+			   ((>= (1+ (point)) (member-end member))
 			    (tactile-start-new-member))
 			   ((= (point) (member-start member))
 			    (forward-char))
@@ -641,6 +645,20 @@
 			    (insert "\\\"")))))
 	(insert "\"\"")
 	(backward-char)))))
+
+(defun handle-backslash ()
+  "When a backslash is press it is inserted, unless it is in a string, in which
+  case a double backslash is inserted."
+  (interactive)
+  (combine-after-change-calls
+    (let ((member (member-at-point)))
+      (if member
+	  (case (member-type member)
+	    (:string (unless (or (>= (point) (member-end member))
+				 (<= (point) (member-start member)))
+		       (insert "\\\\")))
+	    (t (insert 92)))
+	(insert 92)))))
 
 (defun tactile-delete-member (member)
   "Deletes *member* from the file."
@@ -755,7 +773,9 @@
 			 ((or (= (member-start member) (1- (point)))
 			      (= (member-end member) (point)))
 			  (string-to-atom))
-			 ((and (char-before) (= (char-before) 34))
+			 ((and (or (point-equals 92 (- (point) 1))
+				   (point-equals 34 (- (point) 1)))
+			       (point-equals 92 (- (point) 2)))
 			  (delete-char -2))
 			 (t
 			  (delete-char -1))))
@@ -868,6 +888,7 @@
   (define-key (current-local-map) (kbd "(") 'insert-parentheses)
   (define-key (current-local-map) (kbd ")") 'handle-close-parentheses)
   (define-key (current-local-map) (kbd "\"") 'handle-quote)
+  (define-key (current-local-map) (kbd "\\") 'handle-backslash)
   (define-key (current-local-map) (kbd "<backspace>") 'handle-backspace)
   (define-key (current-local-map) (kbd "SPC") 'handle-space)
   (define-key (current-local-map) (kbd "C-c C-k") 'tactile-kill-active-member)
