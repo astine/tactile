@@ -45,14 +45,14 @@
 
 (defvar tactile-kill-ring nil)
 (defvar tactile-kill-ring-size 10)
-(defvar tactile-kill-ring-last-yank nil)
+(defvar tactile-kill-ring-pointer nil)
 
 (defvar-local top-level-overlay nil)
 (defvar-local active-member-overlay nil)
 
 (defvar-local tactile-last-point 0)
 
-;;; Form reading and manipulation
+;;; Member manipulation and definition functions
 
 (defun member-start (member)
   "Returns the buffer location of member's start"
@@ -80,6 +80,42 @@
     (:unquote-list (+ 2 (member-start member)))
     ((:quote :backquote :unquote) (1+ (member-start member)))
     (t (member-start member))))
+
+;;; Tactile Kill Ring management
+
+(defun tactile-rotate-kill-ring ()
+  "Cycles the kill ring pointer through the tactile kill ring. If the pointer is
+  unset, set it to the first item in the ring."
+  (if (and tactile-kill-ring-pointer
+	   (< (1+ tactile-kill-ring-pointer) (length tactile-kill-ring)))
+      (incf tactile-kill-ring-pointer)
+    (setq tactile-kill-ring-pointer 0)))
+
+(defun tactile-reset-kill-ring ()
+  "Unset the kill ring pointer."
+  (setq tactile-kill-ring-pointer nil))
+
+(defun tactile-next-kill-ring ()
+  "Returns the next item in the tactile kill ring, incrementing the pointer in the
+  process."
+  (tactile-rotate-kill-ring)
+  (nth tactile-kill-ring-pointer tactile-kill-ring))
+
+(defun tactile-peek-kill-ring ()
+  "Return the next item from the tactile kill ring."
+  (if (and tactile-kill-ring-pointer
+	   (< (1+ tactile-kill-ring-pointer) (length tactile-kill-ring)))
+      (nth (1+ tactile-kill-ring-pointer) tactile-kill-ring)
+    (first tactile-kill-ring)))
+
+(defun tactile-add-to-kill-ring (member)
+  "Add member to the tactile kill ring."
+  (when (>= (length tactile-kill-ring) tactile-kill-ring-size)
+    (setq tactile-kill-ring (butlast tactile-kill-ring)))
+  (funcall interprogram-cut-function (member-text member))
+  (push member tactile-kill-ring))
+
+;;; Form reading and manipulation
 
 (defun point-equals (char &optional point)
   "Returns true if the char at point is equal to char"
@@ -497,7 +533,7 @@
 		  (equal this-command 'tactile-yank)
 		  (equal last-command 'tactile-yank-again)
 		  (equal this-command 'tactile-yank-again))
-	(setq tactile-kill-ring-last-yank nil))
+	(tactile-reset-kill-ring))
       (reset-active-member)
       (setq tactile-last-point (point-marker)))
     (highlight-forms)))
@@ -585,8 +621,10 @@
 	(case (member-type member)
 	  (:string (insert 41))
 	  (:atom (combine-after-change-calls
-		   (goto-char (member-end (tactile-get-form-at-point)))
-		   (tactile-start-new-member)))
+		   (let ((form (tactile-get-form-at-point)))
+		     (goto-char (member-end form))
+		     (tactile-start-new-member)
+		     (tactile-balance-form-whitespace form))))
 	  (:form (combine-after-change-calls
 		   (goto-char (1+ (member-end member)))
 		   (tactile-start-new-member))))
@@ -685,13 +723,7 @@
 	      (y-or-n-p "Really delete form?"))
       (tactile-delete-member member))))
 
-(defun tactile-add-to-kill-ring (member)
-  "Add member to the tactile kill ring."
-  (when (>= (length tactile-kill-ring) tactile-kill-ring-size)
-    (setq tactile-kill-ring (butlast tactile-kill-ring)))
-  (push member tactile-kill-ring))
-
-(defun tactile-add-active-member-to-kill-ring ()
+(defun tactile-save-active-member ()
   "Push the active member to the tactile kill ring."
   (interactive)
   (tactile-with-active-member (member)
@@ -720,25 +752,23 @@
     (tactile-delete-active-member)
     (tactile-insert-member new-member)))
 
+(defun tactile-cycle-kill-ring ()
+  "Cycles through the members of the kill ring for future yanks."
+  (interactive)
+  (tactile-rotate-kill-ring)
+  (message (member-text (tactile-peek-kill-ring))))
+
 (defun tactile-yank (&optional reversep)
   "Inserts the first member in the tactile kill ring after the member at point."
   (interactive)
-  (tactile-insert-member (first tactile-kill-ring) reversep)
-  (setq tactile-kill-ring-last-yank (list (first tactile-kill-ring) 0)))
+  (when (equal last-command 'tactile-yank)
+    (tactile-reset-kill-ring))
+  (tactile-insert-member (tactile-next-kill-ring) reversep))
 
 (defun tactile-yank-again ()
-  "If the last command was a yank, replace the active member with the next member in
-  the tactile kill ring, else do a regular yank."
+  "Replace the active member with the next member in the tactile kill ring."
   (interactive)
-  (cond ((not tactile-kill-ring-last-yank)
-	 (tactile-yank))
-	((< (1+ (second tactile-kill-ring-last-yank)) (length tactile-kill-ring))	
-	 (let ((new-index (1+ (second tactile-kill-ring-last-yank))))
-	   (tactile-replace-active-member (nth new-index tactile-kill-ring))
-	   (setq tactile-kill-ring-last-yank (list (nth new-index tactile-kill-ring) new-index))))
-	(t
-	 (tactile-replace-active-member (first tactile-kill-ring))
-	 (setq tactile-kill-ring-last-yank (list (first tactile-kill-ring) 0)))))
+  (tactile-replace-active-member (tactile-next-kill-ring)))
 
 (defun reset-active-member ()
   "Reverts the active member to the member at point."
@@ -896,8 +926,13 @@
   (define-key (current-local-map) (kbd "\\") 'handle-backslash)
   (define-key (current-local-map) (kbd "<backspace>") 'handle-backspace)
   (define-key (current-local-map) (kbd "SPC") 'handle-space)
+
   (define-key (current-local-map) (kbd "C-c C-k") 'tactile-kill-active-member)
-  (define-key (current-local-map) (kbd "C-c C-y") 'tactile-yank-again)
+  (define-key (current-local-map) (kbd "C-c C-w") 'tactile-save-active-member)
+  (define-key (current-local-map) (kbd "C-c C-y") 'tactile-yank)
+  (define-key (current-local-map) (kbd "C-c M-y") 'tactile-yank-again)
+  (define-key (current-local-map) (kbd "C-c C-M-y") 'tactile-cycle-kill-ring)
+
   (define-key (current-local-map) (kbd "'") 'tactile-quote)
   (define-key (current-local-map) (kbd "`") 'tactile-backquote)
   (define-key (current-local-map) (kbd ",") 'tactile-unquote)
