@@ -861,7 +861,12 @@
   (interactive)
   (quote-active-member :unquote))
 
-(defun switch-back () (interactive) (remove-overlays) (emacs-lisp-mode))
+(defun toggle-tactile () 
+  "Toggles between tactile and regular emacs lisp mode."
+  (interactive) 
+  (remove-overlays) 
+  (emacs-lisp-mode)
+  (define-key (current-local-map) (kbd "C-c C-q") 'tactile-mode))
 
 (define-derived-mode tactile-mode emacs-lisp-mode "Tactile"
   "Major mode extending emacs lisp mode for structural editing of lisp
@@ -897,5 +902,5 @@
   (define-key (current-local-map) (kbd "`") 'tactile-backquote)
   (define-key (current-local-map) (kbd ",") 'tactile-unquote)
 
-  (define-key (current-local-map) (kbd "C-q") 'switch-back)
+  (define-key (current-local-map) (kbd "C-c C-q") 'switch-back)
   (viper-change-state-to-emacs))
