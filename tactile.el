@@ -388,9 +388,6 @@
 	    (backward-char))
 	  (nreverse members))))))
 
-(defun top-level-forms-as-atoms ()
-  tactile-top-level-forms)
- 
 (defun in-which-member (members point &optional include-nearest-p)
   "Returns the member of *members* in which *point* is located."
   (cl-labels ((find-current-atom (atoms)
@@ -428,7 +425,7 @@
   "Returns the three nearest members surrounding the point. If jump is non-nil,
   returns surrounding forms instead of atoms."
   (let* ((form (tactile-get-form-at-point (or jump 0)))
-	 (members (if form (read-form-members form) (top-level-forms-as-atoms)))
+	 (members (if form (read-form-members form) tactile-top-level-forms))
 	 (prev nil)
 	 (result nil))
     (while (null result)
