@@ -465,6 +465,8 @@
   (unless undo-in-progress
     (unless (= (point) tactile-last-point)
       (unless (or (equal last-command 'tactile-yank)
+		  (equal this-command 'tactile-yank)
+		  (equal last-command 'tactile-yank-again)
 		  (equal this-command 'tactile-yank))
 	(setq tactile-kill-ring-last-yank nil))
       (reset-active-member)
@@ -603,7 +605,8 @@
       (delete-char -1))
     (when (and (char-before) (not (= (char-before) 40))
 	       (char-after) (not (= (char-after) 41)))
-      (insert 32))))
+      (insert 32)
+      (backward-char))))
 
 (defun tactile-delete-active-member (&optional force)
   (interactive)
@@ -800,7 +803,7 @@
   (define-key (current-local-map) (kbd "<backspace>") 'handle-backspace)
   (define-key (current-local-map) (kbd "SPC") 'handle-space)
   (define-key (current-local-map) (kbd "C-c C-k") 'tactile-kill-active-member)
-  (define-key (current-local-map) (kbd "C-c C-y") 'tactile-yank)
+  (define-key (current-local-map) (kbd "C-c C-y") 'tactile-yank-again)
   (define-key (current-local-map) (kbd "'") 'tactile-quote)
   (define-key (current-local-map) (kbd "`") 'tactile-backquote)
   (define-key (current-local-map) (kbd ",") 'tactile-unquote)
