@@ -296,24 +296,30 @@
 ;;; Atom reading and manipulation
 
 (defun read-atom (&optional quote)
+  "Reads in either a symbol or a number which starts at the point."
   (let ((start (- (point) (or (case quote ((:quote :unquote :backquote) 1) (:unquote-list 2)) 0)))
 	(end (1- (re-search-forward "[\n\s\t()]"))))
     (goto-char end)
     (list start end (buffer-substring-no-properties start end) :atom quote)))
 
 (defun read-str (&optional quote)
+  "Reads in a string starting at the point."
   (let ((start (- (point) (or (case quote ((:quote :unquote :backquote) 1) (:unquote-list 2)) 0))))
     (find-closing-quote)
     (forward-char)
     (list start (point)  (buffer-substring-no-properties start (point)) :string)))
 
 (defun read-form (&optional quote)
+  "Reads in a form starting at the point."
   (let ((start (- (point) (or (case quote ((:quote :unquote :backquote) 1) (:unquote-list 2)) 0)))
 	(end (1+ (find-closing-paren))))
     (goto-char end)
     (list start end (buffer-substring-no-properties start end) :form)))
 
 (defun read-member (&optional quote)
+  "With the point at the beginning of a member, either an atom or a form, read in the member
+  and return a member object describing it. Detects whether the member is quoted and delegates
+  the rest to one of the read-x functions."
   (when (char-after)
     (case (char-after)
       (34 (read-str quote))
@@ -332,6 +338,7 @@
       (t (read-atom quote)))))
 
 (defun read-form-members (form)
+  "Returns a list of all members of *form*."
   (unless undo-in-progress
     (save-excursion
       (when form
@@ -349,6 +356,7 @@
   tactile-top-level-forms)
  
 (defun in-which-member (members point &optional include-nearest-p)
+  "Returns the member of *members* in which *point* is located."
   (cl-labels ((find-current-atom (atoms)
 				 (when atoms
 				   (if (<= (member-start (first atoms)) point)
@@ -360,6 +368,8 @@
 						(< (member-start a) (member-start b))))))))
 
 (defun member-at-point (&optional jump)
+  "Returns the member in which the point is located. If *jump* is non-nil, this function
+  'goes-up' *jump* levels and returns a surrounding form."
   (let ((form (tactile-get-form-at-point (or jump 0))))
     (if jump
 	form
@@ -367,15 +377,20 @@
 	(in-which-member (read-form-members form) (point))))))
 
 (defun active-member ()
+  "Returns the active member, which is the member at point zoomed out to the
+  current selection depth."
   (member-at-point tactile-current-form-depth))
 
 (defmacro tactile-with-active-member (member-name &rest body)
+  "Evaluate *body* with *member-name* bound to the current active member."
   (declare (indent defun))
   `(let ((,(first member-name) (active-member)))
      (when ,(first member-name)
        ,@body)))
 
 (defun surrounding-three-members (&optional jump)
+  "Returns the three nearest members surrounding the point. If jump is non-nil,
+  returns surrounding forms instead of atoms."
   (let* ((form (tactile-get-form-at-point (or jump 0)))
 	 (members (if form (read-form-members form) (top-level-forms-as-atoms)))
 	 (prev nil)
@@ -394,6 +409,8 @@
     result))
 
 (defun trim-member-whitespace (member &optional recursive real-point)
+  "Removes unnecessary trailing white space from *member*. If *recursive*,
+  and *member* is a form, also trims form members."
   (goto-char (member-end member))
   (while (and (char-after) (or (= (char-after) 32) (= (char-after) 9))
 	      (not (= (point) (or real-point -1)))
@@ -405,6 +422,7 @@
     (tactile-balance-form-whitespace member recursive real-point)))
 
 (defun tactile-balance-form-whitespace (form &optional recursive real-point)
+  "Removes unnecessary white space from the interior of *form*."
   (let ((real-point (or real-point (point-marker))))
     (save-excursion
       (combine-after-change-calls
@@ -415,6 +433,7 @@
 		(nreverse (read-form-members form)))))))
 
 (defun tactile-pretty-print-form (form)
+  "Rebalances the white space and indentation in *form*."
   (let ((real-point (point)))
     (save-excursion
       (combine-after-change-calls
@@ -423,6 +442,8 @@
 	(indent-pp-sexp)))))
 
 (defun tactile-on-change (x y z)
+  "This function is run every time a change is made to the text. It pretty prints the
+  current top-level form, resets the quote markers, and resets the top level forms list."
   (unless undo-in-progress
     (if-let (top-level-form (tactile-get-top-level-form))
       (tactile-pretty-print-form top-level-form))
@@ -430,6 +451,7 @@
     (setq tactile-top-level-forms (tactile-find-top-level-forms))))
 
 (defun tactile-highlight-atom-at-point ()
+  "Highlights the atom at point."
   (let ((member (member-at-point)))
     (when atom-at-point-overlay
       (delete-overlay atom-at-point-overlay))
@@ -437,6 +459,7 @@
       (move-overlay atom-at-point-overlay (member-start member) (member-end member)))))
 
 (defun tactile-highlight-active-member ()
+  "Highlights the active member."
   (let ((member (active-member)))
     (when active-member-overlay
       (delete-overlay active-member-overlay))
@@ -444,6 +467,7 @@
       (move-overlay active-member-overlay (member-start member) (member-end member)))))
 
 (defun tactile-highlight-top-level-form ()
+  "Highlights the current top level form."
   (let ((form (tactile-get-top-level-form)))
     (when top-level-overlay
       (delete-overlay top-level-overlay))
@@ -451,6 +475,7 @@
       (move-overlay top-level-overlay (member-start form) (1+ (member-end form))))))
 
 (defun tactile-highlight-selected-form ()
+  "Highlights the form at point."
   (let ((form (tactile-get-form-at-point tactile-current-form-depth)))
     (when at-point-overlay
       (delete-overlay at-point-overlay))
@@ -458,10 +483,14 @@
       (move-overlay at-point-overlay (member-start form) (1+ (member-end form))))))
 
 (defun highlight-forms ()
+  "Highlight all the forms and members that need highlighting."
   (tactile-highlight-top-level-form)
   (tactile-highlight-active-member))
 
 (defun tactile-on-move ()
+  "Run every time a command happens. Handles much of tactile's inner plumbing,
+  like keeping the kill ring up to date, clearing the active member, and resetting
+  the highlighting."
   (unless undo-in-progress
     (unless (= (point) tactile-last-point)
       (unless (or (equal last-command 'tactile-yank)
@@ -474,12 +503,15 @@
     (highlight-forms)))
 
 (defun goto-member (member &optional reversep)
+  "Moves the point to the beginning of member."
   (case (member-type member)
     (:atom (goto-char (member-end member)))
     (:string (goto-char (1- (member-end member))))
     (:form (enter-member member reversep))))
 
 (defun enter-member (member reversep)
+  "Assuming member is a form, moves the point to the first (or last)
+  member of the form."
   (let* ((members (read-form-members member))
 	 (inner-member (if reversep (first (last members)) (first members))))
     (if inner-member
@@ -487,6 +519,8 @@
       (goto-char (member-end member)))))
 
 (defun navigate-atoms (reversep &optional jump)
+  "Moves point either to the next or the previous atomic member, jumping in or out
+  of forms as necessary."
   (destructuring-bind (prev member next)
       (surrounding-three-members jump)
     (let ((next-member (if reversep prev next)))
@@ -494,10 +528,12 @@
 	  (goto-member next-member reversep)
 	(navigate-atoms reversep (1+ (or jump 0)))))))
 
-(defun move-foreward () (interactive) (navigate-atoms nil))
-(defun move-backward () (interactive) (navigate-atoms 't))
+(defun move-foreward () "Navigate to next member." (interactive) (navigate-atoms nil))
+(defun move-backward () "Navigate to previous member." (interactive) (navigate-atoms 't))
 
 (defun tactile-start-new-member ()
+  "Add extra space between the current member and the next one, and
+  moves the point between the two so a new member can be typed."
   (interactive)
   (destructuring-bind (prev member next)
       (surrounding-three-members)
@@ -510,6 +546,8 @@
 	(backward-char)))))
 
 (defun tactile-start-new-member-reverse ()
+  "Add extra space between the current member and the previous one, and
+  moves the point between the two so a new member can be typed."
   (interactive)
   (destructuring-bind (prev member next)
       (surrounding-three-members)
@@ -520,6 +558,8 @@
 	(backward-char)))))
 
 (defun insert-parentheses ()
+  "Starts a new member and inserts a new pair of parentheses, unless point is in a string,
+  in which case, a literal parenthesis is inserted."
   (interactive)
   (let ((member (member-at-point)))
     (if member
@@ -537,6 +577,8 @@
 	(backward-char)))))
 
 (defun handle-close-parentheses ()
+  "Moves the point to the end and outside of the current form and starts a new member,
+  unless point is in a string, in which case a literal parenthesis is inserted."
   (interactive)
   (let ((member (member-at-point)))
     (if member
@@ -555,6 +597,7 @@
 	  (tactile-balance-form-whitespace form))))))
 
 (defun atom-to-string ()
+  "Wraps member at point with quotes, turning it into a string."
   (let ((member (member-at-point)))
     (when (and member (equal (member-type member) :atom))
       (save-excursion
@@ -565,6 +608,8 @@
 	 (insert 34))))))
 
 (defun string-to-atom ()
+  "Deletes the quotes at the beginning and end of the string at point
+  turning it either into a symbol or a number."
   (let ((member (member-at-point)))
     (when (and member (equal (member-type member) :string))
       (save-excursion
@@ -575,6 +620,8 @@
 	 (delete-char 1))))))
 
 (defun handle-quote ()
+  "When a quote is pressed, either turn the current member into a string, or
+  insert an escaped quote if currently in a string"
   (interactive)
   (combine-after-change-calls
     (let ((member (member-at-point)))
@@ -596,6 +643,7 @@
 	(backward-char)))))
 
 (defun tactile-delete-member (member)
+  "Deletes *member* from the file."
   (combine-after-change-calls
     (goto-char (member-start member))
     (delete-char (- (member-end member) (member-start member)))
@@ -609,6 +657,8 @@
       (backward-char))))
 
 (defun tactile-delete-active-member (&optional force)
+  "Deletes the active member. If active member is a form with one or more
+  members and force is nil, confirm with the user first."
   (interactive)
   (tactile-with-active-member (member)
     (when (or (not (equal (member-type member) :form))
@@ -618,22 +668,26 @@
       (tactile-delete-member member))))
 
 (defun tactile-add-to-kill-ring (member)
+  "Add member to the tactile kill ring."
   (when (>= (length tactile-kill-ring) tactile-kill-ring-size)
     (setq tactile-kill-ring (butlast tactile-kill-ring)))
   (push member tactile-kill-ring))
 
 (defun tactile-add-active-member-to-kill-ring ()
+  "Push the active member to the tactile kill ring."
   (interactive)
   (tactile-with-active-member (member)
     (tactile-add-to-kill-ring member)))
 
 (defun tactile-kill-active-member ()
+  "Delete the active member and add it to the tactile kill ring."
   (interactive)
   (tactile-with-active-member (member)
     (tactile-add-to-kill-ring member)
     (tactile-delete-member member)))
 
 (defun tactile-insert-member (member &optional reversep)
+  "Inserts *member* just after the member at the point."
   (destructuring-bind (prev memb next)
       (surrounding-three-members)
     (combine-after-change-calls
@@ -643,16 +697,20 @@
       (insert (member-text member)))))
 
 (defun tactile-replace-active-member (new-member)
+  "Replace the active member inline with *new-member*."
   (combine-after-change-calls
     (tactile-delete-active-member)
     (tactile-insert-member new-member)))
 
 (defun tactile-yank (&optional reversep)
+  "Inserts the first member in the tactile kill ring after the member at point."
   (interactive)
   (tactile-insert-member (first tactile-kill-ring) reversep)
   (setq tactile-kill-ring-last-yank (list (first tactile-kill-ring) 0)))
 
 (defun tactile-yank-again ()
+  "If the last command was a yank, replace the active member with the next member in
+  the tactile kill ring, else do a regular yank."
   (interactive)
   (cond ((not tactile-kill-ring-last-yank)
 	 (tactile-yank))
@@ -665,10 +723,12 @@
 	 (setq tactile-kill-ring-last-yank (list (first tactile-kill-ring) 0)))))
 
 (defun reset-active-member ()
+  "Reverts the active member to the member at point."
   (interactive)
   (setq tactile-current-form-depth nil))
 
 (defun expand-active-member ()
+  "Expands the active member to the form surrounding the current active member."
   (interactive)
   (unless (equal (active-member) (tactile-get-top-level-form))
     (if tactile-current-form-depth
@@ -676,6 +736,7 @@
       (setq tactile-current-form-depth 0))))
 
 (defun shrink-active-member ()
+  "Shrinks the active member to the member of the current active member at the point."
   (interactive)
   (when tactile-current-form-depth
     (if (zerop tactile-current-form-depth)
@@ -683,6 +744,7 @@
       (decf tactile-current-form-depth))))
 
 (defun handle-backspace ()
+  "Delete a char if in a member, but delete the whole member if at the beginning of the member."
   (interactive)
   (let ((member (member-at-point)))
     (if member
@@ -711,6 +773,7 @@
 	(delete-char -1)))))
 
 (defun handle-space ()
+  "Start a new member if at end of member, else if in string, enter space."
   (interactive)
   (let ((member (member-at-point)))
     (when member
@@ -729,6 +792,8 @@
 	     nil)))))
 
 (defun quote-active-member (quote-type)
+  "Cycles through the lisp quoting of the active member. Will either convert to a new *quote-type*
+  or will remove the lisp quoting altogether."
   (combine-after-change-calls
     (flet ((toggle-quotes ()
 			  (goto-char (member-start member))
@@ -762,14 +827,17 @@
 	    (save-excursion (toggle-quotes))))))))
 
 (defun tactile-quote ()
+  "Toggle active member quoting."
   (interactive)
   (quote-active-member :quote))
 
 (defun tactile-backquote ()
+  "Toggle active member backquoting."
   (interactive)
   (quote-active-member :backquote))
 
 (defun tactile-unquote ()
+  "Cycle active member unquoting."
   (interactive)
   (quote-active-member :unquote))
 
