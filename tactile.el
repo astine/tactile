@@ -336,21 +336,24 @@
   (let ((start (- (point) (or (case quote ((:quote :unquote :backquote) 1) (:unquote-list 2)) 0)))
 	(end (1- (re-search-forward "[\n\s\t()]"))))
     (goto-char end)
-    (list start end (buffer-substring-no-properties start end) :atom quote)))
+    (list (copy-marker start) (copy-marker end) 
+	  (buffer-substring-no-properties start end) :atom quote)))
 
 (defun read-str (&optional quote)
   "Reads in a string starting at the point."
   (let ((start (- (point) (or (case quote ((:quote :unquote :backquote) 1) (:unquote-list 2)) 0))))
     (find-closing-quote)
     (forward-char)
-    (list start (point)  (buffer-substring-no-properties start (point)) :string)))
+    (list (copy-marker start) (point-marker)
+	  (buffer-substring-no-properties start (point)) :string quote)))
 
 (defun read-form (&optional quote)
   "Reads in a form starting at the point."
   (let ((start (- (point) (or (case quote ((:quote :unquote :backquote) 1) (:unquote-list 2)) 0)))
 	(end (1+ (find-closing-paren))))
     (goto-char end)
-    (list start end (buffer-substring-no-properties start end) :form)))
+    (list (copy-marker start) (copy-marker end) 
+	  (buffer-substring-no-properties start end) :form quote)))
 
 (defun read-member (&optional quote)
   "With the point at the beginning of a member, either an atom or a form, read in the member
