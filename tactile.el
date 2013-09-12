@@ -3,7 +3,8 @@
 (defmacro if-let (binding &rest body)
   "Binds the result of an if conditional statement so that it can be used in the 
   body of the if statement."
-  (declare (indent defun))
+  (declare (indent defun)
+	   (debug (t)))
   `(let ((,(first binding) ,(second binding)))
      (if ,(first binding)
 	 ,@body)))
@@ -387,8 +388,7 @@
 	(let ((members nil))
 	  (while (< (point) (1- (member-end form)))
 	    (push (read-member) members)
-	    (re-search-forward "[^\n\s\t]")
-	    (backward-char))
+	    (skip-chars-forward " \n\t"))
 	  (nreverse members))))))
 
 (defun in-which-member (members point &optional include-nearest-p)
@@ -444,16 +444,28 @@
       (setq members (rest members)))
     result))
 
+(defmacro ignore-change-functions (&rest body)
+  "Suppresses any modification hooks called within 'body'."
+  (declare (indent defun)
+	   (debug (&rest form)))
+  (let ((imh (gensym "imh-")))
+    `(let ((,imh inhibit-modification-hooks))
+       (setq inhibit-modification-hooks t)
+       ,@body
+       (setq inhibit-modification-hooks ,imh))))
+
 (defun trim-member-whitespace (member &optional recursive real-point)
   "Removes unnecessary trailing white space from *member*. If *recursive*,
   and *member* is a form, also trims form members."
   (goto-char (member-end member))
-  (while (and (char-after) (or (= (char-after) 32) (= (char-after) 9))
-	      (not (= (point) (or real-point -1)))
-	      (not (= (1+ (point)) (or real-point -1))))
-    (delete-char 1))
-  (unless (and (char-after) (or (= (char-after) 32) (= (char-after) 41) (= (char-after) 9)))
-    (insert-before-markers 32))
+  (let ((start (point)))
+    (skip-chars-forward " \t")
+    (unless (and (>= real-point start)
+		 (<= real-point (point)))
+      (delete-region start (point))
+      (unless (point-equals 41)
+	(insert-before-markers 32)
+	(move-marker (member-end member) (1- (point))))))
   (when (and recursive (equal (member-type member) :form))
     (tactile-balance-form-whitespace member recursive real-point)))
 
@@ -461,21 +473,22 @@
   "Removes unnecessary white space from the interior of *form*."
   (let ((real-point (or real-point (point-marker))))
     (save-excursion
-      (combine-after-change-calls
+      (ignore-change-functions
 	(goto-char (1+ (member-start form)))
-	(while (and (char-after) (or (= (char-after) 32) (= (char-after) 9)))
-	  (delete-char 1))
+	(delete-region 
+	 (point)
+	 (progn	(skip-chars-forward " \t") (point)))
 	(mapcar (lambda (member) (trim-member-whitespace member recursive real-point))
-		(nreverse (read-form-members form)))))))
+		(read-form-members form))))))
 
 (defun tactile-pretty-print-form (form)
   "Rebalances the white space and indentation in *form*."
   (let ((real-point (point)))
     (save-excursion
-      (combine-after-change-calls
+      (ignore-change-functions
 	(tactile-balance-form-whitespace form t)
 	(goto-char (member-start (tactile-get-top-level-form)))
-	(indent-pp-sexp)))))
+	(indent-sexp)))))
 
 (defun tactile-on-change (x y z)
   "This function is run every time a change is made to the text. It pretty prints the
@@ -937,5 +950,5 @@
   (define-key (current-local-map) (kbd "`") 'tactile-backquote)
   (define-key (current-local-map) (kbd ",") 'tactile-unquote)
 
-  (define-key (current-local-map) (kbd "C-c C-q") 'switch-back)
+  (define-key (current-local-map) (kbd "C-c C-q") 'toggle-tactile)
   (viper-change-state-to-emacs))
