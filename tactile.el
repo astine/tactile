@@ -3,8 +3,8 @@
 (defmacro if-let (binding &rest body)
   "Binds the result of an if conditional statement so that it can be used in the 
   body of the if statement."
-  (declare (indent defun)
-	   (debug (t)))
+  (declare (indent 2)
+	   (debug t))
   `(let ((,(first binding) ,(second binding)))
      (if ,(first binding)
 	 ,@body)))
@@ -466,6 +466,8 @@
   (if-let (depth-at-point (tactile-depth-at-point))
     (- depth-at-point (1+ (or tactile-active-member-jump -1)))))
 
+;;; Constant cleanup/maintenance functions
+
 (defmacro ignore-change-functions (&rest body)
   "Suppresses any modification hooks called within 'body'."
   (declare (indent defun)
@@ -476,32 +478,69 @@
        ,@body
        (setq inhibit-modification-hooks ,imh))))
 
-(defun trim-member-whitespace (member &optional recursive real-point)
-  "Removes unnecessary trailing white space from *member*. If *recursive*,
-  and *member* is a form, also trims form members."
-  (goto-char (member-end member))
-  (let ((start (point)))
-    (skip-chars-forward " \t")
-    (unless (and (>= real-point start)
-		 (<= real-point (point)))
-      (delete-region start (point))
-      (unless (point-equals 41)
-	(insert-before-markers 32)
-	(move-marker (member-end member) (1- (point))))))
-  (when (and recursive (equal (member-type member) :form))
-    (tactile-balance-form-whitespace member recursive real-point)))
+(defvar tactile-wrap-column 35)
+
+(defmacro do-form (form-and-options &rest body)
+  "Runs body with member-binding bound for each member of form."
+  (declare (indent defun)
+	   (debug ((sexp form &optional sexp) body)))
+  (destructuring-bind (member-binding form &optional recursive)
+      form-and-options
+    (let ((members (gensym "do-form-")))
+      `(save-excursion
+	 (let ((,members (cons ,form (read-form-members ,form))))
+	   (while ,members
+	     (let ((,member-binding (pop ,members)))
+	       (when (and ,recursive (equal (member-type (first ,members)) :form))
+		 (nconc ,members (read-form-members (first ,members))))
+	       ,@body)))))))
 
 (defun tactile-balance-form-whitespace (form &optional recursive real-point)
-  "Removes unnecessary white space from the interior of *form*."
+  "Removed unnecessary white space from *form*."
   (let ((real-point (or real-point (point-marker))))
-    (save-excursion
-      (ignore-change-functions
-	(goto-char (1+ (member-start form)))
-	(delete-region 
-	 (point)
-	 (progn	(skip-chars-forward " \t") (point)))
-	(mapcar (lambda (member) (trim-member-whitespace member recursive real-point))
-		(read-form-members form))))))
+    (ignore-change-functions
+      (do-form (member form recursive) 
+	(when (equal (member-type member) :form)
+	  (goto-char (1+ (member-start member)))
+	  (delete-region
+	   (point)
+	   (progn (skip-chars-forward " \t") (point))))
+	(goto-char (member-end member))
+	(let ((start (point)))
+	  (skip-chars-forward " \t")
+	  (unless (and (>= real-point start)
+		       (<= real-point (point)))
+	    (delete-region start (point))
+	    (unless (point-equals 41)
+	      (insert-before-markers 32)
+	      (move-marker (member-end member) (1- (point))))))))))
+
+;(defun trim-member-whitespace (member &optional recursive real-point)
+;  "Removes unnecessary trailing white space from *member*. If *recursive*,
+;  and *member* is a form, also trims form members."
+;  (goto-char (member-end member))
+;  (let ((start (point)))
+;    (skip-chars-forward " \t")
+;    (unless (and (>= real-point start)
+;		 (<= real-point (point)))
+;      (delete-region start (point))
+;      (unless (point-equals 41)
+;	(insert-before-markers 32)
+;	(move-marker (member-end member) (1- (point))))))
+;  (when (and recursive (equal (member-type member) :form))
+;    (tactile-balance-form-whitespace member recursive real-point)))
+
+;(defun tactile-balance-form-whitespace (form &optional recursive real-point)
+;  "Removes unnecessary white space from the interior of *form*."
+;  (let ((real-point (or real-point (point-marker))))
+;    (save-excursion
+;      (ignore-change-functions
+;	(goto-char (1+ (member-start form)))
+;	(delete-region 
+;	 (point)
+;	 (progn	(skip-chars-forward " \t") (point)))
+;	(mapcar (lambda (member) (trim-member-whitespace member recursive real-point))
+;		(read-form-members form))))))
 
 (defun tactile-pretty-print-form (form)
   "Rebalances the white space and indentation in *form*."
