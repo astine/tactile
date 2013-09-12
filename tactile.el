@@ -9,6 +9,12 @@
      (if ,(first binding)
 	 ,@body)))
 
+(defun greater (x y &optional comparator)
+  "Return the greater of two arguments"
+  (if (funcall (or comparator (function >)) x y)
+      x
+    y))
+
 (defface tactile-top-level-form-face 
   '((((class color) (background dark)) (:background "#073642" :underline nil :bold nil))
     (((class color) (background light)) (:background "#93a1a1" :underline nil :bold nil))
@@ -42,7 +48,7 @@
 (defvar-local no-parse-forms nil 
   "Boolean to block the parsing of the top level forms when we know they are imbalanced")
 
-(defvar-local tactile-current-form-depth nil)
+(defvar-local tactile-active-member-jump nil)
 
 (defvar tactile-kill-ring nil)
 (defvar tactile-kill-ring-size 10)
@@ -415,7 +421,7 @@
 (defun active-member ()
   "Returns the active member, which is the member at point zoomed out to the
   current selection depth."
-  (member-at-point tactile-current-form-depth))
+  (member-at-point tactile-active-member-jump))
 
 (defmacro tactile-with-active-member (member-name &rest body)
   "Evaluate *body* with *member-name* bound to the current active member."
@@ -427,7 +433,7 @@
 (defun surrounding-three-members (&optional jump)
   "Returns the three nearest members surrounding the point. If jump is non-nil,
   returns surrounding forms instead of atoms."
-  (let* ((form (tactile-get-form-at-point (or jump 0)))
+  (let* ((form (tactile-get-form-at-point (1+ (or jump -1))))
 	 (members (if form (read-form-members form) tactile-top-level-forms))
 	 (prev nil)
 	 (result nil))
@@ -443,6 +449,22 @@
       (setq prev (first members))
       (setq members (rest members)))
     result))
+
+;;; Current depth detection
+
+(defun tactile-depth (form point)
+  (when (and form point)
+    (let ((member (in-which-member (read-form-members form) point)))
+      (if (and member (equal (member-type member) :form) (< point (member-end member)))
+	  (1+ (tactile-depth member point))
+	1))))
+
+(defun tactile-depth-at-point ()
+  (tactile-depth (tactile-get-top-level-form) (point)))
+
+(defun tactile-active-member-depth ()
+  (if-let (depth-at-point (tactile-depth-at-point))
+    (- depth-at-point (1+ (or tactile-active-member-jump -1)))))
 
 (defmacro ignore-change-functions (&rest body)
   "Suppresses any modification hooks called within 'body'."
@@ -525,7 +547,7 @@
 
 (defun tactile-highlight-selected-form ()
   "Highlights the form at point."
-  (let ((form (tactile-get-form-at-point tactile-current-form-depth)))
+  (let ((form (tactile-get-form-at-point tactile-active-member-jump)))
     (when at-point-overlay
       (delete-overlay at-point-overlay))
     (when form
@@ -547,7 +569,9 @@
 		  (equal last-command 'tactile-yank-again)
 		  (equal this-command 'tactile-yank-again))
 	(tactile-reset-kill-ring))
-      (reset-active-member)
+      (unless (or (equal this-command 'move-foreward)
+		  (equal this-command 'move-backward))
+	(reset-active-member))
       (setq tactile-last-point (point-marker)))
     (highlight-forms)))
 
@@ -570,15 +594,26 @@
 (defun navigate-atoms (reversep &optional jump)
   "Moves point either to the next or the previous atomic member, jumping in or out
   of forms as necessary."
-  (destructuring-bind (prev member next)
-      (surrounding-three-members jump)
-    (let ((next-member (if reversep prev next)))
-      (if next-member 
-	  (goto-member next-member reversep)
-	(navigate-atoms reversep (1+ (or jump 0)))))))
+  (let ((active-member-depth (when tactile-active-member-jump (tactile-active-member-depth))))
 
-(defun move-foreward () "Navigate to next member." (interactive) (navigate-atoms nil))
-(defun move-backward () "Navigate to previous member." (interactive) (navigate-atoms 't))
+    (destructuring-bind (prev member next)
+	(surrounding-three-members jump)
+      (let ((next-member (if reversep prev next)))
+	(if next-member 
+	    (goto-member next-member reversep)
+	  (navigate-atoms reversep (1+ (or jump -1))))))
+
+    (when active-member-depth
+      (let ((new-jump (if-let (depth-at-point (tactile-depth-at-point))
+			(- depth-at-point active-member-depth))))
+	(if (and new-jump (> new-jump 0))
+	    (setq tactile-active-member-jump (1- new-jump))
+	  (setq tactile-active-member-jump nil))))))
+
+(defun move-foreward () 
+  "Navigate to next member." (interactive) (navigate-atoms nil tactile-active-member-jump))
+(defun move-backward () 
+  "Navigate to previous member." (interactive) (navigate-atoms 't tactile-active-member-jump))
 
 (defun tactile-start-new-member ()
   "Add extra space between the current member and the next one, and
@@ -786,23 +821,23 @@
 (defun reset-active-member ()
   "Reverts the active member to the member at point."
   (interactive)
-  (setq tactile-current-form-depth nil))
+  (setq tactile-active-member-jump nil))
 
 (defun expand-active-member ()
   "Expands the active member to the form surrounding the current active member."
   (interactive)
-  (unless (equal (active-member) (tactile-get-top-level-form))
-    (if tactile-current-form-depth
-	(incf tactile-current-form-depth)
-      (setq tactile-current-form-depth 0))))
+  (unless (<= (tactile-active-member-depth) 0)
+    (if tactile-active-member-jump
+	(incf tactile-active-member-jump)
+      (setq tactile-active-member-jump 0))))
 
 (defun shrink-active-member ()
   "Shrinks the active member to the member of the current active member at the point."
   (interactive)
-  (when tactile-current-form-depth
-    (if (zerop tactile-current-form-depth)
-	(setq tactile-current-form-depth nil)
-      (decf tactile-current-form-depth))))
+  (when tactile-active-member-jump
+    (if (zerop tactile-active-member-jump)
+	(setq tactile-active-member-jump nil)
+      (decf tactile-active-member-jump))))
 
 (defun handle-backspace ()
   "Delete a char if in a member, but delete the whole member if at the beginning of the member."
