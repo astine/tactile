@@ -202,7 +202,9 @@
 	(push (list (point-marker)
 		    (in-quotes-p (point) (first quote-markers)))
 	      quote-markers))
-      quote-markers)))
+      quote-markers)
+    (when (in-quotes-p (point-max) (first tactile-quote-markers))
+      (error "Malformed lisp file: Odd number of quotes"))))
 
 (defun in-comment-p (&optional point)
   "Return true if the point is within a comment (after a semicolon before the end of a line.)"
@@ -220,9 +222,9 @@
 
 (defun find-closing-paren (&optional max)
   "Finds the next closing paren at the same paren depth as the point."
-  (save-excursion
-    (let ((depth 0)
-	  (location nil))
+  (let ((depth 0)
+	(location nil))
+    (save-excursion
       (while (and (< (point) (or max (point-max))) (null location))
 	(forward-char)
 					;40 is open paren, 41 is close paren
@@ -235,8 +237,11 @@
 	      ((point-equals 40)
 	       (incf depth 1))
 	      ((point-equals 41)
-	       (decf depth 1))))
-      location)))
+	       (decf depth 1)))))
+    (unless location
+      (error "Malformed lisp file: Unable to find closing parenthesis from %i"
+		  (point)))
+    location))
 
 (defun lisp-quoted (&optional point)
   "Returns whether the member beginning at point is lisp quoted, lisp unquoted,
@@ -250,7 +255,7 @@
 	((and (point-equals 64 (1- (or point (point))))
 	      (point-equals 44 (- (or point (point)) 2)))
 	 :unquote-list)))
-	
+
 (defun tactile-find-top-level-forms ()
   "Traverses the entire buffer looking for top level forms and returns a list of
   them in the order they were found."
@@ -276,6 +281,9 @@
 		    (push (lisp-quoted (car (last form))) form)
 		    (push (nreverse form) forms))
 		(goto-char (1- (point-max)))))))
+	(when (and (point-equals 41)
+		   (not (in-quotes-p)) (not (in-comment-p)))
+	  (error "Malformed lisp file: Dangling close parenthesis: %i" (point)))
 	(when (< (point) (point-max))
 	  (forward-char)))
       (nreverse forms))))
@@ -601,19 +609,23 @@
   "Run every time a command happens. Handles much of tactile's inner plumbing,
   like keeping the kill ring up to date, clearing the active member, and resetting
   the highlighting."
-  (unless undo-in-progress
-    (unless (= (point) tactile-last-point)
-      (unless (or (equal last-command 'tactile-yank)
-		  (equal this-command 'tactile-yank)
-		  (equal last-command 'tactile-yank-again)
-		  (equal this-command 'tactile-yank-again))
-	(tactile-reset-kill-ring))
-      (unless (or (equal this-command 'move-foreward)
-		  (equal this-command 'move-backward))
-	(reset-active-member))
-      (setq tactile-last-point (point-marker)))
-    (highlight-forms)))
-
+  (condition-case err
+      (unless undo-in-progress
+	(unless (= (point) tactile-last-point)
+	  (unless (or (equal last-command 'tactile-yank)
+		      (equal this-command 'tactile-yank)
+		      (equal last-command 'tactile-yank-again)
+		      (equal this-command 'tactile-yank-again))
+	    (tactile-reset-kill-ring))
+	  (unless (or (equal this-command 'move-foreward)
+		      (equal this-command 'move-backward))
+	    (reset-active-member))
+	  (setq tactile-last-point (point-marker)))
+	(highlight-forms))
+    (error (progn
+	     (toggle-tactile)
+	     (message "Error in tactile: %s, quitting to emacs lisp mode." (cdr err))))))
+  
 (defun goto-member (member &optional reversep)
   "Moves the point to the beginning of member."
   (case (member-type member)
@@ -994,12 +1006,17 @@
   (overlay-put top-level-overlay 'face 'highlight)
   (overlay-put active-member-overlay 'face 'region)
 
+  (condition-case err
+      (progn
+	(setq tactile-quote-markers (tactile-get-quote-markers))
+	(setq tactile-top-level-forms (tactile-find-top-level-forms))
+	(setq tactile-last-point (point)))
+    (error (progn
+	     (toggle-tactile)
+	     (signal (car err) (cdr err)))))
+
   (add-hook 'after-change-functions 'tactile-on-change nil t)
   (add-hook 'post-command-hook 'tactile-on-move nil t)
-
-  (setq tactile-quote-markers (tactile-get-quote-markers))
-  (setq tactile-top-level-forms (tactile-find-top-level-forms))
-  (setq tactile-last-point (point))
 
   (define-key (current-local-map) (kbd "M-n") 'move-foreward)
   (define-key (current-local-map) (kbd "M-p") 'move-backward)
@@ -1025,4 +1042,5 @@
   (define-key (current-local-map) (kbd ",") 'tactile-unquote)
 
   (define-key (current-local-map) (kbd "C-c C-q") 'toggle-tactile)
-  (viper-change-state-to-emacs))
+  (viper-change-state-to-emacs)
+  (message "Tactile mode engaged"))
