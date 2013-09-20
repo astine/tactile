@@ -20,6 +20,15 @@ Future features should include:
  - Intelligent auto completion 
  - *Many* refactoring facilities.
 
+Install
+-------
+
+Copy tactile.el to your `.emacs.d` directory and copy this to your `.emacs`:
+
+    (autoload 'tactile-mode "tactile" "Load tactile emacs lisp mode" t)
+    
+Then use `M-x tactile-mode` to load an elisp file into tactile-mode.
+
 Usage
 -----
 
