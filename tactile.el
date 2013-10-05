@@ -182,13 +182,15 @@
   "Find the next unescaped quote in the buffer."
   (forward-char)
   (while (not (at-unescaped-quote-p))
-    (forward-char)))
+    (forward-char)
+    (skip-chars-forward "^\"")))
 
 (defun find-opening-quote ()
   "Find the last unescaped quote in the buffer."
   (backward-char)
   (while (not (at-unescaped-quote-p))
-    (backward-char)))
+    (backward-char)
+    (skip-chars-backward "^\"")))
 
 (defun tactile-get-quote-markers ()
   "Go through the entire buffer and mark whether the beginning of every tenth line
@@ -240,7 +242,7 @@
 	       (decf depth 1)))))
     (unless location
       (error "Malformed lisp file: Unable to find closing parenthesis from %i"
-		  (point)))
+	     (line-number-at-pos)))
     location))
 
 (defun lisp-quoted (&optional point)
@@ -264,28 +266,29 @@
       (goto-char (point-min))
       (while (< (point) (point-max))
 					;40 is open paren, 41 is close paren
-	(when (and (point-equals 40)
-		   (not (in-quotes-p)) (not (in-comment-p)))
-	  (let ((form nil))
-	    (case (lisp-quoted)
-	      ((:quote :backquote :unquote) (push (copy-marker (1- (point))) form))
-	      (:unquote-list (push (copy-marker (- (point) 2)) form))
-	      (t (push (point-marker) form)))
-	    (let ((end (copy-marker (1+ (find-closing-paren)))))
-	      (if end ;If this form does not close, don't add it and finish parsing
-		  (progn
-		    (push end form)
-		    (goto-char (1+ (first form)))
-		    (push (buffer-substring-no-properties (second form) (first form)) form)
-		    (push :form form)
-		    (push (lisp-quoted (car (last form))) form)
-		    (push (nreverse form) forms))
-		(goto-char (1- (point-max)))))))
-	(when (and (point-equals 41)
-		   (not (in-quotes-p)) (not (in-comment-p)))
-	  (error "Malformed lisp file: Dangling close parenthesis: %i" (point)))
-	(when (< (point) (point-max))
-	  (forward-char)))
+	(cond ((point-equals 40)
+	       (let ((form nil))
+		 (case (lisp-quoted)
+		   ((:quote :backquote :unquote) (push (copy-marker (1- (point))) form))
+		   (:unquote-list (push (copy-marker (- (point) 2)) form))
+		   (t (push (point-marker) form)))
+		 (let ((end (copy-marker (1+ (find-closing-paren)))))
+		   (if end ;If this form does not close, don't add it and finish parsing
+		       (progn
+			 (push end form)
+			 (goto-char (first form))
+			 (push (buffer-substring-no-properties (second form) (first form)) form)
+			 (push :form form)
+			 (push (lisp-quoted (car (last form))) form)
+			 (push (nreverse form) forms))
+		     (goto-char (1- (point-max)))))))
+	      ((point-equals 41)
+	       (error "Malformed lisp file: Dangling close parenthesis: %i" (line-number-at-pos)))
+	      ((at-unescaped-quote-p)
+	       (find-closing-quote))
+	      ((point-equals 59)
+	       (forward-line))
+	      (t (forward-char))))
       (nreverse forms))))
 
 (defun tactile-get-top-level-form ()
