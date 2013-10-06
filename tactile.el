@@ -569,8 +569,7 @@
   (unless undo-in-progress
     (if-let (top-level-form (tactile-get-top-level-form))
       (tactile-pretty-print-form top-level-form))
-    (setq tactile-quote-markers (tactile-get-quote-markers))
-    ))
+    (setq tactile-quote-markers (tactile-get-quote-markers))))
 
 (defun tactile-highlight-atom-at-point ()
   "Highlights the atom at point."
@@ -824,7 +823,7 @@
   (tactile-with-active-member (member)
     (when (or (not (equal (member-type member) :form))
 	      force
-	      (zerop (length (read-form-members form)))
+	      (zerop (length (read-form-members member)))
 	      (y-or-n-p "Really delete form?"))
       (tactile-delete-member member))))
 
@@ -899,35 +898,32 @@
 (defun handle-backspace ()
   "Delete a char if in a member, but delete the whole member if at the beginning of the member."
   (interactive)
-  (let ((member (member-at-point)))
-    (if member
-	(case (member-type member)
-	  (:string (cond ((or (= (member-start member) (point))
-			      (= (+ (member-start member) 2) (member-end member)))
+  (tactile-with-active-member (member)
+    (combine-after-change-calls
+      (if member
+	  (case (member-type member)
+	    (:form (tactile-delete-active-member))
+	    (:string (cond ((or (= (member-start member) (point))
+				(= (+ (member-start member) 2) (member-end member)))
+			    (tactile-delete-active-member))
+			   ((or (= (member-start member) (1- (point)))
+				(= (member-end member) (point)))
+			    (string-to-atom))
+			   ((and (or (point-equals 92 (- (point) 1))
+				     (point-equals 34 (- (point) 1)))
+				 (point-equals 92 (- (point) 2)))
+			    (delete-char -2))
+			   (t
+			    (delete-char -1))))
+	    (:atom (cond ((= (member-start member) (point))
 			  (tactile-delete-active-member))
-			 ((or (= (member-start member) (1- (point)))
-			      (= (member-end member) (point)))
-			  (string-to-atom))
-			 ((and (or (point-equals 92 (- (point) 1))
-				   (point-equals 34 (- (point) 1)))
-			       (point-equals 92 (- (point) 2)))
-			  (delete-char -2))
 			 (t
-			  (delete-char -1))))
-	  (:atom (cond ((and (= (member-start member) (point))
-			     (and (char-before) (= (char-before) 40)))
-			(tactile-delete-active-member))
-		       ((= (member-start member) (point))
-			(tactile-delete-active-member))
-		       (t
-			(delete-char -1)))))
-      (if (point-equals 40 (1- (point)))
-	  (progn
-	    (if (point-equals 41)
-		(tactile-delete-member (tactile-get-form-at-point))
-	      (tactile-delete-active-member))
-	    (setq tactile-top-level-forms (tactile-find-top-level-forms)))
-	(delete-char -1)))))
+			  (delete-char -1)))))
+	(when (char-before)
+	  (case (char-before)
+	    ((\" \\ \; \n \r)
+	     )
+	    (delete-char -1)))))))
 
 (defun handle-space ()
   "Start a new member if at end of member, else if in string, enter space."
