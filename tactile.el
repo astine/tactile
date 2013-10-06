@@ -840,15 +840,15 @@
     (tactile-add-to-kill-ring member)
     (tactile-delete-member member)))
 
-(defun tactile-insert-member (member &optional reversep)
-  "Inserts *member* just after the member at the point."
-  (destructuring-bind (prev memb next)
-      (surrounding-three-members)
-    (combine-after-change-calls
-      (if reversep
-	  (tactile-start-new-member-reverse)
-	(tactile-start-new-member))
-      (insert (member-text member)))))
+(defun tactile-insert-member (member &optional reversep) 
+  "Inserts *member* just after the member at the point." 
+  (destructuring-bind (prev memb next) 
+      (surrounding-three-members) 
+    (combine-after-change-calls 
+      (if reversep 
+	  (tactile-start-new-member-reverse) 
+	(tactile-start-new-member)) 
+      (insert (member-text member))))) 
 
 (defun tactile-replace-active-member (new-member)
   "Replace the active member inline with *new-member*."
@@ -920,7 +920,7 @@
 			(delete-char -1)))))
       (when (char-before)
 	(case (char-before)
-	  ((\" \\ \; \n \r)
+	  ((34 92 59 10)
 	   )
 	  (delete-char -1))))))
 
