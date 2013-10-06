@@ -563,13 +563,14 @@
 	(goto-char (member-start (tactile-get-top-level-form)))
 	(indent-sexp)))))
 
-(defun tactile-on-change (x y z)
+(defun tactile-on-change (begin end length) 
   "This function is run every time a change is made to the text. It pretty prints the
-  current top-level form, resets the quote markers, and resets the top level forms list."
-  (unless undo-in-progress
-    (if-let (top-level-form (tactile-get-top-level-form))
-      (tactile-pretty-print-form top-level-form))
-    (setq tactile-quote-markers (tactile-get-quote-markers))))
+  current top-level form, resets the quote markers, and resets the top level forms list." 
+  (unless undo-in-progress 
+    (if-let (top-level-form (tactile-get-top-level-form)) 
+	(tactile-pretty-print-form top-level-form)) 
+    (when (> (abs (- length (- end begin))) 25) 
+      (setq tactile-quote-markers (tactile-get-quote-markers))))) 
 
 (defun tactile-highlight-atom-at-point ()
   "Highlights the atom at point."
@@ -716,26 +717,28 @@
 	(setq tactile-top-level-forms (tactile-find-top-level-forms))
 	(backward-char)))))
 
-(defun handle-close-parentheses ()
+(defun handle-close-parentheses () 
   "Moves the point to the end and outside of the current form and starts a new member,
-  unless point is in a string, in which case a literal parenthesis is inserted."
-  (interactive)
-  (let ((member (member-at-point)))
-    (if member
-	(case (member-type member)
-	  (:string (insert 41))
-	  (:atom (combine-after-change-calls
-		   (let ((form (tactile-get-form-at-point)))
-		     (goto-char (member-end form))
-		     (tactile-start-new-member)
-		     (tactile-balance-form-whitespace form))))
-	  (:form (combine-after-change-calls
-		   (goto-char (1+ (member-end member)))
-		   (tactile-start-new-member))))
-      (combine-after-change-calls
-	(let ((form (tactile-get-form-at-point)))
-	  (goto-char (member-end form))
+  unless point is in a string, in which case a literal parenthesis is inserted." 
+  (interactive) 
+  (let ((member (member-at-point))) 
+    (if member 
+	(case (member-type member) 
+	  (:string (insert 41)) 
+	  (:atom (combine-after-change-calls 
+		   (let ((form (tactile-get-form-at-point))) 
+		     (goto-char (member-end form)) 
+		     (tactile-start-new-member) 
+		     (tactile-balance-form-whitespace form)))) 
+	  (:form (combine-after-change-calls 
+		   (goto-char (1+ (member-end member))) 
+		   (tactile-start-new-member) 
+		   (setq tactile-quote-markers (tactile-get-quote-markers))))) 
+      (combine-after-change-calls 
+	(let ((form (tactile-get-form-at-point))) 
+	  (goto-char (member-end form)) 
 	  (tactile-start-new-member)
+	  (setq tactile-quote-markers (tactile-get-quote-markers))
 	  (tactile-balance-form-whitespace form))))))
 
 (defun atom-to-string ()
