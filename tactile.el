@@ -743,7 +743,7 @@
   (let ((member (member-at-point)))
     (when (and member (equal (member-type member) :atom))
       (save-excursion
-	(combine-after-change-calls
+	(ignore-change-functions
 	 (goto-char (member-end member))
 	 (insert 34)
 	 (goto-char (member-start member))
@@ -755,7 +755,7 @@
   (let ((member (member-at-point)))
     (when (and member (equal (member-type member) :string))
       (save-excursion
-	(combine-after-change-calls
+	(ignore-change-functions
 	 (goto-char (member-end member))
 	 (delete-char -1)
 	 (goto-char (member-start member))
@@ -899,31 +899,30 @@
   "Delete a char if in a member, but delete the whole member if at the beginning of the member."
   (interactive)
   (tactile-with-active-member (member)
-    (combine-after-change-calls
-      (if member
-	  (case (member-type member)
-	    (:form (tactile-delete-active-member))
-	    (:string (cond ((or (= (member-start member) (point))
-				(= (+ (member-start member) 2) (member-end member)))
-			    (tactile-delete-active-member))
-			   ((or (= (member-start member) (1- (point)))
-				(= (member-end member) (point)))
-			    (string-to-atom))
-			   ((and (or (point-equals 92 (- (point) 1))
-				     (point-equals 34 (- (point) 1)))
-				 (point-equals 92 (- (point) 2)))
-			    (delete-char -2))
-			   (t
-			    (delete-char -1))))
-	    (:atom (cond ((= (member-start member) (point))
+    (if member
+	(case (member-type member)
+	  (:form (tactile-delete-active-member))
+	  (:string (cond ((or (= (member-start member) (point))
+			      (= (+ (member-start member) 2) (member-end member)))
 			  (tactile-delete-active-member))
+			 ((or (= (member-start member) (1- (point)))
+			      (= (member-end member) (point)))
+			  (string-to-atom))
+			 ((and (or (point-equals 92 (- (point) 1))
+				   (point-equals 34 (- (point) 1)))
+			       (point-equals 92 (- (point) 2)))
+			  (delete-char -2))
 			 (t
-			  (delete-char -1)))))
-	(when (char-before)
-	  (case (char-before)
-	    ((\" \\ \; \n \r)
-	     )
-	    (delete-char -1)))))))
+			  (delete-char -1))))
+	  (:atom (cond ((= (member-start member) (point))
+			(tactile-delete-active-member))
+		       (t
+			(delete-char -1)))))
+      (when (char-before)
+	(case (char-before)
+	  ((\" \\ \; \n \r)
+	   )
+	  (delete-char -1))))))
 
 (defun handle-space ()
   "Start a new member if at end of member, else if in string, enter space."
