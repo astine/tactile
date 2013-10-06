@@ -189,8 +189,8 @@
   "Find the last unescaped quote in the buffer."
   (backward-char)
   (while (not (at-unescaped-quote-p))
-    (backward-char)
-    (skip-chars-backward "^\"")))
+    (skip-chars-backward "^\"")
+    (backward-char)))
 
 (defun tactile-get-quote-markers ()
   "Go through the entire buffer and mark whether the beginning of every tenth line
@@ -346,7 +346,7 @@
 	  (when begin
 	    (setq end (copy-marker (1+ (find-closing-paren search-area-end))))
 	    (when end
-	      (list begin end (buffer-substring-no-properties begin end) :form quoted)))))))
+	      (list begin end (buffer-substring-no-properties begin end) :form quoted))))))))
 
 ;;; Atom reading and manipulation
 
@@ -627,7 +627,7 @@
 	(highlight-forms))
     (error (progn
 	     (toggle-tactile)
-	     (message "Error in tactile: %s, quitting to emacs lisp mode." (cdr err))))))
+	     (message "Error in tactile: %s, quitting to emacs lisp mode." (or (cdr err) (car err)))))))
   
 (defun goto-member (member &optional reversep)
   "Moves the point to the beginning of member."
